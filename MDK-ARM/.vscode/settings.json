@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "bsp_can.h": "c",
+        "sensor.h": "c",
+        "chassis.h": "c",
+        "dji_motor.h": "c",
+        "pid.h": "c",
+        "arm.h": "c",
+        "task.h": "c"
+    }
+}
