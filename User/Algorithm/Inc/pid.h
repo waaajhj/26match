@@ -114,7 +114,7 @@ void PIDInit(PIDInstance *pid, PID_Init_Config_s *config);
 float PIDCalculate(PIDInstance *pid, float set, float measure);
 float PID_Angle_Position(PID_Position_Struct *PID, float Current, float Target,float limit);
 void PIDClear(PIDInstance *pid);
-float calculate_angle_error(float current, float target) ;
+float calculate_angle_error(float current, float target);
 static void f_Trapezoid_Intergral(PIDInstance *pid);
 void PID_Init(void);
 static void f_Changing_Integration_Rate(PIDInstance *pid);

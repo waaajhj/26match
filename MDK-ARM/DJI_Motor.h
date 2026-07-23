@@ -11,6 +11,7 @@ void motor_speed_control(int16_t *speeds );
 void motor_angle_control(float angle);
 void Kinematic_Analysis2(float Vx,float Vy,float Vz);
 void calculate_motor_speeds(float V,float W );
+void calculate_motor_speeds_behind(float V,float W);
 void motor_stop(void);
 void  motor_angle_control_S(float angle,float speed);
 #endif

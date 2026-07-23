@@ -13,6 +13,7 @@ uint32_t time;
 uint16_t out_flag_new=0;
 float bais=0;
 float W_out=0;
+float target_bais=0;
 //=====================================================================================
 //============================角度部分=========================================
 //=====================================================================================
@@ -20,6 +21,12 @@ void walkspin_dynamic(float target_angle, float speed){
     float wz1=PID_Angle_Position(&PID_YAW, Yaw, target_angle, 3000);
  
         calculate_motor_speeds(speed,-wz1);
+
+    
+}
+void walkspin_dynamic_behind(float target_angle, float speed){
+    float wz1=PID_Angle_Position(&PID_YAW, Yaw, target_angle, 3000);
+        calculate_motor_speeds_behind(speed,-wz1);
 
     
 }
@@ -33,7 +40,7 @@ void walkspin_track_dynamic(float target_angle, float speed){
     float wz1=PID_Angle_Position(&PID_YAW, Yaw, target_angle, 3000);
 	      bais = bais_judgment();
 	      W_out = PID_Position(&PID_sensor3,bais,0,1000);
-        calculate_motor_speeds(speed,-wz1+W_out);
+        calculate_motor_speeds(speed,-wz1+W_out-200);
 }
 // 原地自转函数
 // 输入：
@@ -44,20 +51,44 @@ void walkspin_track_dynamic(float target_angle, float speed){
 void spin(float angle){
     motor_angle_control(angle);
 }
-// ...existing code...
+
 /**
  * @brief 向左转指定角度（逆时针，Yaw 增大）
  * @param deg 需左转的角度（度）
  */
 void turn_left(float deg)
 {
-    if (deg < 0) deg = -deg;
-    while (deg >= 360.0f) deg -= 360.0f;
-
-    float target = Yaw + deg;
-    while (target >= 360.0f) target -= 360.0f;
-
-    motor_angle_control(target);
+uint16_t i;
+    float result = Yaw + deg;
+	PID_Init();
+    // if (result > 360) {
+    //     result -= 360;
+    // }
+		motor_angle_control(result);
+//		while(abs(calculate_angle_error(Yaw,result))>=2.0f){
+//			    float wz1=PID_Angle_Position(&PID_straight, Yaw, result, 3000);
+//        if(wz1>0){
+//           calculate_motor_speeds(0,-(wz1+front_wz));
+//        }
+//        else if(wz1<0){
+//            calculate_motor_speeds(0,front_wz-wz1);
+//        }
+//		
+////        calculate_motor_speeds(0,-(wz1));
+////			walkspin_dynamic(result,3500);
+//		}
+//		while(abs(calculate_angle_error(Yaw,result))>=2.0f){
+//			    float wz1=PID_Angle_Position(&PID_straight, Yaw, result, 3000);
+//        if(wz1>0){
+//           calculate_motor_speeds(0,-(wz1+front_wz));
+//        }
+//        else if(wz1<0){
+//            calculate_motor_speeds(0,front_wz-wz1);
+//        }
+//		
+//        calculate_motor_speeds(0,-(wz1));
+//			walkspin_dynamic(result,3500);
+//		}
 }
 
 /**
@@ -66,16 +97,26 @@ void turn_left(float deg)
  */
 void turn_right(float deg)
 {
-    if (deg < 0) deg = -deg;
-    while (deg >= 360.0f) deg -= 360.0f;
-
-    float target = Yaw - deg;
-    while (target < 0.0f) target += 360.0f;
-
-    motor_angle_control(target);
-	  motor_angle_control(target);
-	delay_ms(300);
-	  motor_angle_control(target);
+    // if (deg < 0) deg = -deg;
+    // while (deg >= 360.0f) deg -= 360.0f;
+    PID_Init();
+    uint16_t i;
+    float result = Yaw - deg;
+    // if (result < 0) {
+    //     result += 360;
+    // }
+		motor_angle_control(result);
+//		while(abs(calculate_angle_error(Yaw,result))>=3.0f){
+//			    float wz1=PID_Angle_Position(&PID_straight, Yaw, result, 3000);
+//        if(wz1>0){
+//           calculate_motor_speeds(0,-(wz1+front_wz));
+//        }
+//        else if(wz1<0){
+//            calculate_motor_speeds(0,front_wz-wz1);
+//        }
+//        calculate_motor_speeds(0,(-wz1));
+//			walkspin_dynamic(result,3500);
+//		}
 
 }
 // 左转函数
@@ -86,13 +127,21 @@ void turn_right(float deg)
 void walk_spin_left(float angle)
 {
     uint16_t i;
+    // 使用累加式角度处理，Yaw已经是连续角度，直接计算目标角度
     float result = Yaw + angle;
-    if (result > 360) {
-        result -= 360;
-    }
-		while(Yaw<=result-2.5||Yaw>=result+2.5){
-			walkspin_dynamic(result,3500);
+    
+    // 重置PID控制器，清除积分项和微分项，避免历史状态影响
+    PID_Init();
+    
+		while(fabs(calculate_angle_error_fixed(Yaw,result))>=3.0f){
+			    float wz1=PID_Angle_Position(&PID_YAW, Yaw, result, 3000);
+ 
+        calculate_motor_speeds(3500,-(wz1));
+//			walkspin_dynamic(result,3500);
 		}
+    
+//    // 添加短延时确保角度完全稳定，避免立即执行下一个动作
+//    HAL_Delay(50);
 //    for(i=0;i<angle*2.5f;i++){
 //		walkspin_dynamic(result,3500);
 //	}
@@ -105,13 +154,21 @@ void walk_spin_left(float angle)
 void walk_spin_right(float angle)
 {
 	uint16_t i;
+    // 使用累加式角度处理，Yaw已经是连续角度，直接计算目标角度
     float result = Yaw - angle;
-    if (result < 0) {
-        result += 360;
-    }
-		while(Yaw<=result-2.5||Yaw>=result+2.5){
-			walkspin_dynamic(result,3500);
+    
+    // 重置PID控制器，清除积分项和微分项，避免历史状态影响
+    PID_Init();
+    
+		while(fabs(calculate_angle_error_fixed(Yaw,result))>=3.0f){
+			float wz1=PID_Angle_Position(&PID_YAW, Yaw, result, 3000);
+        
+        calculate_motor_speeds(3500,-(wz1));
+//			walkspin_dynamic(result,3500);
 		}
+    
+    // 添加短延时确保角度完全稳定，避免立即执行下一个动作
+//    HAL_Delay(50);
 //	for(i=0;i<angle*2.5f;i++){
 //		walkspin_dynamic(result,3500);
 //	}  
@@ -119,11 +176,30 @@ void walk_spin_right(float angle)
 // 原地自转180
 // 待测试稳定性
 void spin180(void){
-	turn_left(179.5);
+	turn_left(179);
 	// motor_angle_control(180);
 	// motor_angle_control(180);
 }
 
+// 正确计算角度误差的函数，处理0/360边界
+float calculate_angle_error_fixed(float current, float target) {
+    float error = target - current;
+    
+//    // 处理跨越0/360边界的情况，确保误差在-180到+180之间
+//    if (error > 180.0f) {
+//        error -= 360.0f;
+//    } else if (error < -180.0f) {
+//        error += 360.0f;
+//    }
+    
+    return error;
+}
+
+float angle_restrict(float angle){
+	if(angle<0){angle+=360;}
+	if(angle>360){angle-=360;}
+	return angle;
+}
 //=====================================================================================
 //============================循迹部分=========================================
 //=====================================================================================
@@ -148,7 +224,7 @@ void track_dynamic_Speed(float speed){
 }
 void track_dynamic_Speed_2Line(float speed){
     bais = bais_judgment_2Line();
-    W_out = PID_Position(&PID_sensor2,bais,0,2000);
+    W_out = PID_Position(&PID_sensor2,bais,target_bais,2000);
 //    //脱线次数过多停车
 //	if(out_flag_new >= 100){
 //		out_flag_new = 0;
@@ -199,7 +275,7 @@ void track_2L_count(int time)
 
     time_on = read_time();
     while (read_time() <= time_on + time) {
-        track_dynamic_Speed_2Line(6000);
+        track_dynamic_Speed_2Line(7000);
     }
 }
 void tumble(void){

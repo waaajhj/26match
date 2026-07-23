@@ -45,12 +45,12 @@ void down_low_stair(void){
 	uint16_t i=0;
 	while(!(Pitch > 5 && Pitch < 355)){
 		i+=200;
-		if(i>4000){i=4000;}
+		if(i>6000){i=6000;}
 		walkspin_dynamic(angle,i);
 	}
 //	OLED_ShowNum(0,0,RollX,3);
 	while(!(scan_line())){walkspin_dynamic(angle,i);}
-	S_regulate_track(4000,8000,300);
+	S_regulate_track(6000,8000,300);
 	Arm_down();
 	S_regulate_track(8000,10000,200);
 	
@@ -80,18 +80,18 @@ void updown_low_stair(void){
 	
 	S_regulate_walkspin(2500,0,record_angle,100);
 	motor_stop();
-	delay_ms(500);
+//	delay_ms(500);
 	record_angle = Yaw;
 //	motor_angle_control(record_angle);
-	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
-	
+//	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
+	angle = record_angle + 180;
 //	motor_stop();
 	
 	spin180();
 //	for(i=0;i<3;i++){
-//		motor_angle_control(angle);
+//		motor_angle_control(angle);\
 //	}
-	delay_ms(100);
+//	delay_ms(100);
 	angle=Yaw;
 	i=0;
 	while(!(Pitch > 5 && Pitch < 355)){
@@ -99,7 +99,13 @@ void updown_low_stair(void){
 		if(i>3000){i=3000;}
 		walkspin_dynamic(angle,i);
 	}
-	while(!(scan_line())){walkspin_dynamic(angle,i);}
+	while(Pitch > 5 && Pitch < 355){track_dynamic_Speed(i);}
+//	// 添加左右摆头寻找线的逻辑
+//	int turn_flag = 1;
+//	while(!(scan_line())){
+//		if(turn_flag==1){turn_left(20);turn_flag=0;}
+//		else {turn_right(40);turn_flag=1;}
+//	}
 	S_regulate_track(3000,8000,300);
 //	S_regulate_track(7000,8000,200);
 }
@@ -160,15 +166,15 @@ void updown_low_stair6(void){
 		track_dynamic_Speed_2Line(i);
 	}
 	record_angle = Yaw;
-	S_regulate_walkspin(4000,2500,record_angle,350);
-	S_regulate_walkspin(2500,0,record_angle,100);
-	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
-	
+	S_regulate_walkspin(4000,0,record_angle,250);
+//	S_regulate_walkspin(2500,0,record_angle,100);
+//	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
+	angle = record_angle + 180;
 	motor_stop();
-	delay_ms(100);
+//	delay_ms(100);
 	spin180();
 	motor_angle_control(angle);
-	delay_ms(100);
+//	delay_ms(100);
 	i=0;
 	while(!(Pitch > 5 && Pitch < 355)){
 		i+=200;
@@ -185,22 +191,30 @@ void updown_low_stair6(void){
 // 落地速度为6000
 void updown_middle_stair(void){
 	
-   	uint16_t i;
+   	uint16_t i,j;
 	float angle;
 	float record_angle;
 	
 	i=6000;
-	
+	uint32_t time=read_time();
+	record_angle=Yaw;
 	while(Pitch > 5 && Pitch < 355){
 		i-=500;
-		if(i<=4000){i=4000;}
-		
+		if(i<=5000){i=5000;}
+		if(read_time()<= time+700){
 		track_dynamic_Speed_2Line(i);
+		record_angle=Yaw;}
+		else{
+		Arm_up();
+		walkspin_dynamic(record_angle,i);
+			
+		}
+
 	}
 	record_angle = Yaw;
-	S_regulate_walkspin(4000,0,record_angle,350);
-	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
-	
+	S_regulate_walkspin(5000,0,record_angle,200);
+//	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
+	angle = record_angle + 180;
 	motor_stop();
 	delay_ms(100);
 	spin180();
@@ -212,11 +226,15 @@ void updown_middle_stair(void){
 		if(i>3500){i=3500;}
 		walkspin_dynamic(angle,i);
 	}
-	PID_sensor2.Kp = 30.0f;
+	PID_sensor2.Kp = 40.0f;
+	time=read_time();
 	while(Pitch > 5 && Pitch < 355){
-		track_dynamic_Speed_2Line(4000);
+		Arm_down();
+		if(read_time()<= time+400){
+		walkspin_dynamic(angle,i);}
+		else {track_dynamic_Speed_2Line(3500);}
 	}
-	PID_sensor2.Kp = 70.0f;
+	PID_sensor2.Kp = 60.0f;
 	S_regulate_track2Line(4000,6000,200);
 }
 // 上下高台
@@ -225,68 +243,122 @@ void updown_high_stair(void) {
     uint16_t i;
 	float angle;
 	float record_angle;
+	uint16_t angle_limit_flag = 0;
+	uint16_t angle_limit = 20;
+	uint8_t remove_limit = 0;
 	record_angle = Yaw;
 	//减速
 	
-	S_regulate_track(10000,7000,300);
+	S_regulate_track(10000,5000,300);
 	
 	while(Pitch > 10 && Pitch < 350){
-		track_dynamic_Speed(7000);
+		track_dynamic_Speed_2Line(5000);
 	}
-	S_regulate_track(7000,3000,500);
-	S_regulate_track(3000,6000,500);
-	
-	i=6000;
+	S_regulate_track2Line(5000,0,300);
+	record_angle = Yaw;
+	Arm_up();
+//	delay_ms(500);
+	while(!(Pitch > 20 && Pitch < 340)){
+		i+=100;
+		if(i>4000){i=4000;}
+		walkspin_dynamic(record_angle,i);
+	}
+	// S_regulate_track2Line(0,6000,500);
+	// i=6000;
 	uint16_t record_time = read_time();
-	while(Pitch > 10 && Pitch < 350){
+	record_angle = Yaw;
+	while(Pitch > 20 && Pitch < 340){
 		i-=10;
 		if(i<=4000){i=4000;}
-
-		track_dynamic_Speed(i);
+        
+        // 色标判断校正
+//        if (RF == 0 && angle_limit_flag < angle_limit){
+//            record_angle += 0.1f;
+//	 		angle_limit_flag++;
+//	 		remove_limit = 0;
+////            if(record_angle > 360){record_angle -= 360;}
+//        }
+//        else if(LF == 0 && angle_limit_flag < angle_limit){
+//            record_angle -= 0.1f;
+//	 		angle_limit_flag++;
+//			remove_limit = 0;
+////            if(record_angle < 0){record_angle += 360;}
+//        }
+//	 	if(LF == 0 || RF == 0){
+//	 		remove_limit++;
+//	 		if(remove_limit >= 20){
+//	 			remove_limit =0;
+//	 			angle_limit_flag = 0;
+//	 		}
+//		}
+		walkspin_dynamic(record_angle,i);
 	}
 	
-	record_angle = Yaw;
-	S_regulate_walkspin(4000,0,record_angle,200);
-	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
 	
+	S_regulate_walkspin(4000,0,record_angle,300);
+//	angle = ((record_angle + 180) > 360)? (record_angle - 180) : (record_angle + 180);
+	angle = record_angle + 180;
 	motor_stop();
 	delay_ms(100);
 	spin180();
-
-	angle-=3;
-	if(angle < 0){angle +=359;}
+	// angle-=3;
+	// if(angle < 0){angle +=359;}
 	delay_ms(100);
 	i=0;
+	record_angle = Yaw;
+//	CAN_cmd_chassis(0,0,0,0);
 	while(!(Pitch > 20 && Pitch < 340)){
 		i+=100;
-		if(i>3000){i=3000;}
+		if(i>2000){i=2000;}
+//		walkspin_dynamic_behind(angle,i);
 		walkspin_dynamic(angle,i);
 	}
-	while(!(scan_line())){
+	while(Pitch > 10 && Pitch < 350){
+        
+//        // 色标判断校正
+//        if (RF == 0 && angle_limit_flag < angle_limit){
+//            record_angle += 0.1f;
+//	 		angle_limit_flag++;
+//	 		remove_limit = 0;
+////            if(record_angle > 360){record_angle -= 360;}
+//        }
+//        else if(LF == 0 && angle_limit_flag < angle_limit){
+//            record_angle -= 0.1f;
+//	 		angle_limit_flag++;
+//			remove_limit = 0;
+////            if(record_angle < 0){record_angle += 360;}
+//        }
+//	 	if(LF == 0 || RF == 0){
+//	 		remove_limit++;
+//	 		if(remove_limit >= 20){
+//	 			remove_limit =0;
+//	 			angle_limit_flag = 0;
+//	 		}
+//		}
+//		walkspin_dynamic_behind(record_angle,i);
+		walkspin_dynamic(angle,i);
+	}
+	
+	record_angle = Yaw;
+	S_regulate_walkspin(i,0,record_angle,200);
+	Arm_down();
+	while(!(scan_2Line())){
 		i+=100;
-		if(i>3000){i=3000;}
-		walkspin_dynamic(angle,i);
-	}
-	i=3000;
-	//倾斜时
-	while(Pitch > 15 && Pitch < 345){
-		i+=50;
-		if(i<=7000){i=7000;}
-		track_dynamic_Speed(i);
-	}
-	S_regulate_track(7000,2000,500);
-	//S_regulate_track(0,4000,00);
-	while(!(Pitch > 20 && Pitch < 340)){
-		track_dynamic_Speed(2000);
+		if(i>2000){i=2000;}
+		walkspin_dynamic(record_angle,i);
 	}
 
-	i=2000;
+	while(!(Pitch > 20 && Pitch < 340)){
+		track_dynamic_Speed_2Line(4000);
+	}
+
+	i=4000;
 	while(Pitch > 8 && Pitch < 352){
 		i+=30;
-		if(i>=8000){i=8000;}
-		track_dynamic_Speed(i);
+		if(i>=5000){i=5000;}
+		track_dynamic_Speed_2Line(i);
 	}
-	S_regulate_track(8000,10000,300);
+//	S_regulate_track2Line(8000,10000,300);
 }
 // 爬长桥
 // 落地速度为10000
@@ -298,7 +370,7 @@ void climb_moutain(void){
 	moutain_angle = Yaw;
 	int i;
 	//float record_angle = moutain_angle;
-	S_regulate_track2Line(8000,4000,200);
+	S_regulate_track2Line(10000,6000,200);
 //	S_regulate_track2Line(4000,6000,300);
 //	S_regulate_moutain(8000,4000,moutain_angle,500);
 //	S_regulate_moutain(4000,8000,moutain_angle,300);
@@ -306,15 +378,18 @@ void climb_moutain(void){
 //		moutain_angle-=updown_stair_error_2L();
 //		if(moutain_angle > 360){moutain_angle -= 360;}	
 //		else if(moutain_angle < 0){moutain_angle += 360;}
-		track_dynamic_Speed_2Line(4000);
+		track_dynamic_Speed_2Line(5000);
 //		walkspin_dynamic(moutain_angle, 8000);
 	}
-	S_regulate_track2Line(4000,8000,300);
+	S_regulate_track2Line(5000,8000,300);
+	uint32_t time=read_time();
 		while(!(Pitch > 5 && Pitch < 355)){
-		track_dynamic_Speed_2Line(8000);
+		if(read_time()<=time+1000){
+		track_dynamic_Speed_2Line(8000);}
+		else{track_dynamic_Speed_2Line(6000);}
 	}
 		moutain_angle = Yaw;
-	S_regulate_moutain(8000,3000,moutain_angle,200);
+	S_regulate_moutain(6000,3000,moutain_angle,200);
      // 通过陀螺仪判断下台时间
 //     while(!(Pitch > 200 && Pitch < 350)){
 //			 track_dynamic_Speed_2Line(8000);
@@ -394,7 +469,7 @@ void obstacle_three_goto(void){
 	uint32_t time_on;
     uint16_t i =3500;
     time_on = read_time();
-    while (read_time() <= time_on + 2800) {
+    while (read_time() <= time_on + 2500) {
         i+=50;
 		if(i > 3500){i=3500;}
 		walkspin_track_dynamic_2L(record_angle, i);
@@ -412,7 +487,7 @@ void obstacle_goto(void){
 	uint32_t time_on;
     uint16_t i =3500;
     time_on = read_time();
-    while (read_time() <= time_on + 800) {
+    while (read_time() <= time_on + 1000) {
         i+=50;
 		if(i > 4000){i=4000;}
 		walkspin_track_dynamic_2L(record_angle, i);
@@ -463,7 +538,7 @@ void teeterboard_270(void){
 	float stride = 1.2;
 	uint16_t angle_limit = 12;
 	record_angle = Yaw;
-	if(record_angle > 359){record_angle -= 359;}
+//	if(record_angle > 359){record_angle -= 359;}
 	//前进到倾斜
 	while(!(Pitch > 20 && Pitch < 200)){
 		walkspin_dynamic(record_angle,3000);
@@ -501,7 +576,8 @@ void teeterboard_270(void){
         // }
 		angle_limit_flag = 0;
 	}
-	S_regulate_track2Line(3000,6000,300);	
+	S_regulate_walkspin(3000,6000,record_angle,200);
+//	S_regulate_track(3000,6000,200);	
 	
 }// 过跷跷板
 // 针对第二个过跷跷板
@@ -703,12 +779,11 @@ void vision_start(void){
 	delay_ms(1000);
 	uint8_t start[]="\xFF\xBB\x01\x01\xAA";
 	usart2_send(start);
-	
 }
 void vision_stop(void){
 	// RGB_OFF();
 	
-	HAL_UART_AbortReceive_IT(&huart4);
+//	HAL_UART_AbortReceive_IT(&huart4);
 	
 	uint8_t stop[]="\xFF\xBB\x02\x02\xAA";
 	usart2_send(stop);
@@ -719,12 +794,12 @@ void vision_stop(void){
 int vision_choose_cross(void){
 	//当没读到值时（choose_cross_flag=0）
 	delay_ms(100);
-	choose_cross_flag = 2;
+	choose_cross_flag = 0;
 	uint16_t i=0;
 	while(choose_cross_flag == 0){
 		i++;
-		if(i > 100){tumble();}
-		if(i > 135){choose_cross_flag = 2;break;}
+		if(i > 150){tumble();}
+		if(i > 185){choose_cross_flag = 2;break;}
 		delay_ms(10);
 	}
 	//红灯返回0（禁止通行）

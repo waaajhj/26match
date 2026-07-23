@@ -22,5 +22,5 @@ void Arm_up(void){
 }
 void Arm_down(void){
 	Angle1(6);
-	Angle2(180);
+	Angle2(172);//左边
 }

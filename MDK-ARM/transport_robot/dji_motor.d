@@ -26,4 +26,4 @@ transport_robot/dji_motor.o: DJI_Motor.c DJI_Motor.h \
   ..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim_ex.h \
   ..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_uart.h \
   ..\User\Device\Inc\DM_Motor.h ..\User\Algorithm\Inc\pid.h sensor.h \
-  ..\Core\Inc\gpio.h jy61p.h
+  ..\Core\Inc\gpio.h jy61p.h chassis.h

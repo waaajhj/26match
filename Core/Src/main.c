@@ -125,7 +125,6 @@ int main(void)
 	HAL_TIM_Base_Start_IT(&htim3);
   PID_Init();
   Hal_Uart_Init();
-	
   DWT_Init(168);
   CAN_Config();
 	Arm_Init();
@@ -151,25 +150,27 @@ int main(void)
   PIDInit(&Motor3SpeedPID, &speed_config);
   PIDInit(&Motor4SpeedPID, &speed_config);
 		//测试代码
-
-//		while(Start_flag==1){}
-//		begin_part();
-//		goto_3_part();
-//		across_door_goto();
-//	  goto_6_part();
-//	  test_2L();
-//    goto_5_part();
-//    across_door_return();
+//		Arm_down();
+//spin180();
+		while(Start_flag==1){}
+		begin_part();
+		goto_3_part();
+		across_door_goto();
+	  goto_6_part();
+	  test_2L();
+////		route_2L();
+    goto_5_part();
+    across_door_return();
     goto_4_part_return();
-//		while(Start_flag==0){}
-//		begin_part();
-//		goto_3_part();
-//		across_door_goto();
-//	  goto_6_part();
-//	  test_2L();
-//    goto_5_part();
-//    across_door_return();
-//    goto_4_part_return();
+		while(Start_flag==0){}
+		begin_part();
+		goto_3_part();
+		across_door_goto();
+	  goto_6_part();
+	  test_2L();
+    goto_5_part();
+    across_door_return();
+    goto_4_part_return();
 //		Arm_down();
 //		goto_6_part();
 		

@@ -4,14 +4,16 @@
 #include "usart.h"
 #include "gpio.h"
 #include "maixcam.h"
+#include "math.h"
 static uint8_t RxBuffer[11];/*接收数据数组*/
 static volatile uint8_t RxState = 0;/*接收状态标志位*/
 static uint8_t RxIndex = 0;/*接受数组索引*/
 static uint8_t RxBuffer1[11];/*接收数据数组*/
 static volatile uint8_t RxState1 = 0;/*接收状态标志位*/
 static uint8_t RxIndex1 = 0;/*接受数组索引*/
-float Roll,Pitch,Yaw,fYaw;/*角度信息，如果只需要整数可以改为整数类型*/
+float Roll,Pitch,Yaw,Yaw1,fYaw;/*角度信息，如果只需要整数可以改为整数类型*/
 float LastYaw = 0, Circle;
+float Lastyaw=0,F=0,quanshu=0,LastValidYaw=0;/*F是为了第一次不判断是否跳变，需要给Lastyaw赋初始值。quanshu记录圈数*/
 // 蓝牙串口接收缓冲区
 uint8_t rx_data[256] = {0};
 int Start_Flag=0;
@@ -97,63 +99,93 @@ void jy61p_ReceiveData(uint8_t RxData)
  * @param       串口接收的数据RxData
  * @retval      无
  */
+/**
+ * @brief       数据包处理函数
+ * @param       串口接收的数据RxData
+ * @retval      无
+ */
 void WT101_ReceiveData(uint8_t RxData)
 {
-	uint8_t i,sum=0;
-	
-	if (RxState1 == 0)	//等待包头
-	{
-		if (RxData == 0x55)	//收到包头
-		{
-			RxBuffer1[RxIndex1] = RxData;
-			RxState1 = 1;
-			RxIndex1 = 1; //进入下一状态
-		}
-	}
-	
-	else if (RxState1 == 1)
-	{
-		if (RxData == 0x53)	/*判断数据内容，修改这里可以改变要读的数据内容，0x53为角度输出*/
-		{
-			RxBuffer1[RxIndex1] = RxData;
-			RxState1 = 2;
-			RxIndex1 = 2; //进入下一状态
-		}
-	}
-	
-	else if (RxState1 == 2)	//接收数据
-	{
-		RxBuffer1[RxIndex1++] = RxData;
-		if(RxIndex1 == 11)	//接收完成
-		{
-			for(i=0;i<10;i++)
-			{
-				sum = sum + RxBuffer1[i]; //计算校验和
-			}
-			if(sum == RxBuffer1[10])		//校验成功
-			{
-				/*计算数据，根据数据内容选择对应的计算公式*/
-			// 	Roll = ((uint16_t) ((uint16_t) RxBuffer[3] << 8 | (uint16_t) RxBuffer[2])) / 32768.0f * 180.0f;
-			// 	Pitch = ((uint16_t) ((uint16_t) RxBuffer[5] << 8 | (uint16_t) RxBuffer[4])) / 32768.0f * 180.0f;
-			//  Yaw = ((uint16_t) ((uint16_t) RxBuffer[7] << 8 | (uint16_t) RxBuffer[6])) / 32768.0f * 180.0f;
-				Yaw =  ((short)( RxBuffer[7]<<8 |  RxBuffer[6]))/32768.0*180;
-				if (Yaw < 0.0f) Yaw += 360.0f;
-				//将角度转换成无跳变角度，防止跳变破坏稳定性
-				// if(LastYaw - fYaw < -180){
-				// 		Circle += 1;
-				// }else if(LastYaw - fYaw > 180){
-				// 		Circle -= 1;
-				// }
-				
-				// Yaw = fYaw - 360 * Circle;
-				// Yaw=(int)Yaw % 360;
-				// LastYaw = fYaw;
-					
-			}
-			RxState1 = 0;
-			RxIndex1 = 0; //读取完成，回到最初状态，等待包头
-		}
-	}
+    uint8_t i, sum = 0;
+    
+    if (RxState1 == 0) //等待包头
+    {
+        if (RxData == 0x55) //收到包头
+        {
+            RxBuffer1[0] = RxData;
+            RxState1 = 1;
+            RxIndex1 = 1;
+        }
+    }
+    else if (RxState1 == 1) //等待包类型
+    {
+        if (RxData == 0x53) //角度数据包
+        {
+            RxBuffer1[1] = RxData;
+            RxState1 = 2;
+            RxIndex1 = 2;
+        }
+        else //不是角度包，重新同步
+        {
+            RxState1 = 0;
+            RxIndex1 = 0;
+        }
+    }
+    else if (RxState1 == 2) //接收数据
+    {
+        RxBuffer1[RxIndex1++] = RxData;
+        if(RxIndex1 == 11) //接收完成
+        {
+            // 计算校验和（前10个字节）
+            for(i = 0; i < 10; i++)
+            {
+                sum += RxBuffer1[i];
+            }
+            // 严格的校验：必须包头正确 + 包类型正确 + 校验和正确
+            if(RxBuffer1[0] == 0x55 && RxBuffer1[1] == 0x53 && sum == RxBuffer1[10])
+            {
+                fYaw = ((short)(RxBuffer1[7] << 8 | RxBuffer1[6])) / 32768.0 * 180;
+                // 添加数据有效性检查：fYaw应该在-180到+180范围内
+                if(fYaw >= -180.0f && fYaw <= 180.0f)
+                {
+                    if(F == 0) {
+                        // 第一次有效数据，设为零点基准
+                        Lastyaw = fYaw;
+                        F = 1;
+                        quanshu = 0;
+                        Yaw = 0;
+                        LastValidYaw = 0;
+                    }
+                    else {
+                        // 计算角度变化量
+                        float delta_yaw = fYaw - Lastyaw;
+                        // 处理跨越±180度边界的情况
+                        if (delta_yaw > 180.0f) {
+                            delta_yaw -= 360.0f;
+                        } else if (delta_yaw < -180.0f) {
+                            delta_yaw += 360.0f;
+                        }
+                        // 累积角度变化
+                        quanshu += delta_yaw;
+                        Yaw = quanshu;
+                        Lastyaw = fYaw;
+                        
+                        // 大角度跳变检测和过滤
+                        if (fabs(Yaw - LastValidYaw) <= 90.0f) {
+                            LastValidYaw = Yaw;
+                        } else {
+                            // 跳变过大，使用上一个有效值
+                            Yaw = LastValidYaw;
+                        }
+                    }
+                }
+                // 如果fYaw超出范围，直接丢弃这个数据包
+            }
+            // 无论校验是否成功，都重置状态机
+            RxState1 = 0;
+            RxIndex1 = 0;
+        }
+    }
 }
 // void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 //{
@@ -209,11 +241,11 @@ void JY61P_START(void)
 }
 void WT101_START(void)
 {
-    HAL_UART_Transmit(&huart3,JY61P_ULOCK_CMD, sizeof(JY61P_ULOCK_CMD),10000);  //解锁
+    HAL_UART_Transmit(&huart2,JY61P_ULOCK_CMD, sizeof(JY61P_ULOCK_CMD),10000);  //解锁
     HAL_Delay(200);//延时200ms
-    HAL_UART_Transmit(&huart3,WT101_Z0_CMD, sizeof(WT101_Z0_CMD),10000);      //Z轴归零
+    HAL_UART_Transmit(&huart2,WT101_Z0_CMD, sizeof(WT101_Z0_CMD),10000);      //Z轴归零
     HAL_Delay(200);
-    HAL_UART_Transmit(&huart3,JY61P_SAVE_CMD, sizeof(JY61P_SAVE_CMD),10000);    //保存
+    HAL_UART_Transmit(&huart2,JY61P_SAVE_CMD, sizeof(JY61P_SAVE_CMD),10000);    //保存
     HAL_Delay(200);
 }
 

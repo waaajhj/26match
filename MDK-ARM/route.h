@@ -22,4 +22,5 @@ void test_2L(void);
 void goto_6_part2(void);
 void goto_4_part_return(void);
 void goto_5_part(void);
+void route_2L(void);
 #endif

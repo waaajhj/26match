@@ -26,6 +26,8 @@ int scan_cross_early(uint8_t *gray_data);
 uint8_t scan_line(void);
 uint8_t scan_right_cross_2L(void);
 uint8_t scan_left_cross_2L(void);
+int scan_high_bit_single(uint8_t *gray_data);
+uint8_t right_scan(void);
 typedef enum {
     STATE_NORMAL,     
     STATE_IN_CROSS,   

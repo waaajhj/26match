@@ -162,13 +162,21 @@ uint8_t scan_2Line(void)
 // 扫线函数
 // 只要扫到线就返回 0 否则返回 1
 uint8_t left_scan(void) {
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 4; i++) {
         if (line[i] == 0) {
             return 1;
         }
     }
     return 0;
 }    
+uint8_t right_scan(void) {
+    for (int i = 9; i < 12; i++) {
+        if (line[i] == 0) {
+            return 1;
+        }
+    }
+    return 0;
+} 
 uint8_t scan_line_flag = 0; // 循迹标志
 // 检测line数组判断是否寻到线
 // 功能：
@@ -258,7 +266,7 @@ int scan_cross(uint8_t *gray_data, int start_speed, int delay_stop){
     int count_light = 0;         // 亮起的通道数量
 
     // 收集所有亮起的通道索引（假设0表示亮起）
-    for (int i = 2; i < 10; i++) {
+    for (int i = 1; i < 11; i++) {
         if (*(gray_data + i) == 0) {
             light_indices[count_light++] = i;
         }
@@ -291,24 +299,44 @@ int scan_cross(uint8_t *gray_data, int start_speed, int delay_stop){
 }
 int scan_cross_nostop(uint8_t *gray_data) 
 {
-    if(scan_cross_flag >= 1) { // 滤波次数
+    if (scan_cross_flag >= 1) { // 滤波次数
         scan_cross_flag = 0;
+		
         return 0;
     }
 
-    int count = 0;
-    // 只看中间六个
-    for (int i = 3; i < 9; i++) {
-        count += (*(gray_data + i) == 0);  // 扫到线时 count 加 1
+    int light_indices[12] = {0}; // 存储亮起的灰度通道索引
+    int count_light = 0;         // 亮起的通道数量
+
+    // 收集所有亮起的通道索引（假设0表示亮起）
+    for (int i = 2; i < 10; i++) {
+        if (*(gray_data + i) == 0) {
+            light_indices[count_light++] = i;
+        }
     }
 
-    if (count > 2) {
-        scan_cross_flag++;
-    }
-    else {
-        scan_cross_flag = 0;
-    }
+    // 至少需要两路亮起才进行不连续判断
+    if (count_light >= 2) {
+        uint8_t has_discontinuous = 0;
+        // 检查所有两两组合是否存在不连续情况
+        for (int j = 0; j < count_light; j++) {
+            for (int k = j + 1; k < count_light; k++) {
+                if (abs(light_indices[j] - light_indices[k]) > 1) {
+                    has_discontinuous = 1;
+                    break; // 只要找到一对即可
+                }
+            }
+            if (has_discontinuous) break;
+        }
 
+        if (has_discontinuous) {
+            scan_cross_flag++;
+        } else {
+            scan_cross_flag = 0;
+        }
+    } else {
+        scan_cross_flag = 0; // 不足两路直接重置
+    }
     return 1;  
 } 
 // 判断是否到达单路口函数
@@ -331,7 +359,7 @@ int scan_left_cross(uint8_t *gray_data, int start_speed, int delay_stop)
         count += (*(gray_data + i) == 0);  // 扫到线时 count 加 1
     }
 
-    if (count > 2) {
+    if (count > 1) {
         scan_cross_flag++;
     }
     else {
@@ -365,6 +393,23 @@ int scan_three_cross(uint8_t *gray_data)
 
     return 1;  
 } 
+/**
+ * @brief 检测高位两个灰度传感器是否任一亮起（值为0）
+ * 
+ * 若 gray_data[10] 或 gray_data[11] 中任意一个为0（检测到黑线），
+ * 则认为条件满足，返回0；否则返回1。
+ * 
+ * @param gray_data: 指向12路灰度数据的指针
+ * @return int: 0 表示高位有信号，1 表示无信号
+ */
+int scan_high_bit_single(uint8_t *gray_data)
+{
+    // 检查高位两个通道（索引10和11）是否任一为0（黑线）
+    if (*(gray_data + 10) == 0 || *(gray_data + 11) == 0) {
+        return 0; // 任一亮起，返回0
+    }
+    return 1; // 都未亮起，返回1
+}
 // 判断是否到达单路口函数
 // 输入：
 //    gray_data：存储 12 路灰度数据的数组的指针
@@ -381,11 +426,11 @@ int scan_right_cross(uint8_t *gray_data, int start_speed, int delay_stop)
     }
     int count = 0;
     // 只看中间六个
-    for (int i = 6; i < 12; i++) {
+    for (int i = 8; i < 12; i++) {
         count += (*(gray_data + i) == 0);  // 扫到线时 count 加 1
     }
 
-    if (count > 2) {
+    if (count > 1) {
         scan_cross_flag++;
     }
     else {

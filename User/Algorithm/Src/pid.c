@@ -156,16 +156,20 @@ void PID_Init(void){
     PID_straight.Kp = 60.0f;   
     PID_straight.Ki = 0.0f;
     PID_straight.Kd = 20.0f;
+    PID_straight.Integral=0;
+    PID_straight.Error_Last1=0;
     PID_YAW.Kp = 100.0f;
     PID_YAW.Ki = 0.0f;
     PID_YAW.Kd = 0.0f;
-    PID_sensor1.Kp = 60.0f;
+    PID_YAW.Integral=0;
+    PID_YAW.Error_Last1=0;
+    PID_sensor1.Kp = 40.0f;
     PID_sensor1.Ki = 0.0f;
-    PID_sensor1.Kd = 1.0f;
-    PID_sensor2.Kp = 70.0f;
+    PID_sensor1.Kd = 10.0f;
+    PID_sensor2.Kp = 60.0f;
     PID_sensor2.Ki = 0.0f;
-    PID_sensor2.Kd = 0.0f;
-	  PID_sensor3.Kp = 30.0f;
+    PID_sensor2.Kd = 10.0f;
+	PID_sensor3.Kp = 30.0f;
     PID_sensor3.Ki = 0.0f;
     PID_sensor3.Kd = 0.0f;
 
@@ -248,11 +252,11 @@ float PIDCalculate(PIDInstance *pid, float set, float measure)
 }
 float calculate_angle_error(float current, float target) {
     float error = target - current;
-    if (error > 180.0f) {
-        error -= 360.0f;
-    } else if (error < -180.0f) {
-        error += 360.0f;
-    }
+//    if (error > 180.0f) {
+//        error -= 360.0f;
+//    } else if (error < -180.0f) {
+//        error += 360.0f;
+//    }
 	// if (error > 0) {
 	// 	motor1.direction = turn_left;
 	// } else if (error < 0) {
