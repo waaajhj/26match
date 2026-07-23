@@ -1,0 +1,29 @@
+# Keil build output
+/MDK-ARM/transport_robot/
+*.o
+*.d
+*.crf
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lnp
+*.dep
+*.iex
+*.lst
+*.build_log.htm
+
+# Keil per-user state
+*.uvguix.*
+*.uvoptx
+/MDK-ARM/.vscode/*.log
+/MDK-ARM/.vscode/*.log.lock
+
+# Temporary and operating-system files
+*.bak
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
