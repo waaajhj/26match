@@ -21,7 +21,7 @@
                 "${workspaceFolder}/User/Algorithm/Inc",
                 "${workspaceFolder}/User/Device/Inc",
                 "${workspaceFolder}/User/App/Inc",
-                "${workspaceFolder}/MDK-ARM/RTE/_transport_robot",
+                "${workspaceFolder}/MDK-ARM/RTE/_26matchF4",
                 "D:/Program Files/keil/ARM/CMSIS-DSP/1.17.0/Include",
                 "D:/Program Files/keil/ARM/CMSIS-DSP/1.17.0/PrivateInclude",
                 "D:/Program Files/keil/ARM/CMSIS/6.3.0/CMSIS/Core/Include"

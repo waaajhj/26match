@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "transport_robot",
+            "name": "26matchF4",
             "compilerPath": "D:/Program Files/keil/ARM/ARMCLANG/Bin/armclang.exe",
             "compilerArgs": [
                 "--target=arm-arm-none-eabi",
@@ -12,22 +12,22 @@
                 "-fshort-wchar"
             ],
             "includePath": [
-                "e:\\cube\\transport_robot\\Core\\Inc",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Inc",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Inc\\Legacy",
-                "e:\\cube\\transport_robot\\Drivers\\CMSIS\\Device\\ST\\STM32F4xx\\Include",
-                "e:\\cube\\transport_robot\\Drivers\\CMSIS\\Include",
-                "e:\\cube\\transport_robot\\User\\Bsp\\Inc",
-                "e:\\cube\\transport_robot\\User\\Algorithm\\Inc",
-                "e:\\cube\\transport_robot\\User\\Device\\Inc",
-                "e:\\cube\\transport_robot\\User\\App\\Inc",
-                "e:\\cube\\transport_robot\\Core\\Src",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Src",
-                "e:\\cube\\transport_robot\\User\\Device\\Src",
-                "e:\\cube\\transport_robot\\User\\Bsp\\Src",
-                "e:\\cube\\transport_robot\\User\\Algorithm\\Src",
-                "e:\\cube\\transport_robot\\User\\App\\Src",
-                "e:\\cube\\transport_robot\\MDK-ARM\\RTE\\_transport_robot",
+                "e:\\cube\\26matchF4\\Core\\Inc",
+                "e:\\cube\\26matchF4\\Drivers\\STM32F4xx_HAL_Driver\\Inc",
+                "e:\\cube\\26matchF4\\Drivers\\STM32F4xx_HAL_Driver\\Inc\\Legacy",
+                "e:\\cube\\26matchF4\\Drivers\\CMSIS\\Device\\ST\\STM32F4xx\\Include",
+                "e:\\cube\\26matchF4\\Drivers\\CMSIS\\Include",
+                "e:\\cube\\26matchF4\\User\\Bsp\\Inc",
+                "e:\\cube\\26matchF4\\User\\Algorithm\\Inc",
+                "e:\\cube\\26matchF4\\User\\Device\\Inc",
+                "e:\\cube\\26matchF4\\User\\App\\Inc",
+                "e:\\cube\\26matchF4\\Core\\Src",
+                "e:\\cube\\26matchF4\\Drivers\\STM32F4xx_HAL_Driver\\Src",
+                "e:\\cube\\26matchF4\\User\\Device\\Src",
+                "e:\\cube\\26matchF4\\User\\Bsp\\Src",
+                "e:\\cube\\26matchF4\\User\\Algorithm\\Src",
+                "e:\\cube\\26matchF4\\User\\App\\Src",
+                "e:\\cube\\26matchF4\\MDK-ARM\\RTE\\_26matchF4",
                 "D:\\Program Files\\keil\\ARM\\CMSIS-DSP\\1.17.0\\Include",
                 "D:\\Program Files\\keil\\ARM\\CMSIS-DSP\\1.17.0\\PrivateInclude",
                 "D:\\Program Files\\keil\\ARM\\CMSIS\\6.3.0\\CMSIS\\Core\\Include"

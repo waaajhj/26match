@@ -2,7 +2,7 @@
 <project>
 	<fileVersion>3</fileVersion>
 	<configuration>
-		<name>transport_robot</name>
+		<name>26matchF4</name>
 		<toolchain>
 			<name>ARM</name>
 		</toolchain>
