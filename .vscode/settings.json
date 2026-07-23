@@ -1,0 +1,14 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.errorSquiggles": "enabled",
+    "files.associations": {
+        "*.h": "c",
+        "arm.h": "c",
+        "bsp_can.h": "c",
+        "chassis.h": "c",
+        "dji_motor.h": "c",
+        "pid.h": "c",
+        "sensor.h": "c",
+        "task.h": "c"
+    }
+}

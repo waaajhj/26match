@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "transport_robot",
+            "name": "Keil ARMClang - STM32F407",
             "compilerPath": "D:/Program Files/keil/ARM/ARMCLANG/Bin/armclang.exe",
             "compilerArgs": [
                 "--target=arm-arm-none-eabi",
@@ -12,30 +12,27 @@
                 "-fshort-wchar"
             ],
             "includePath": [
-                "e:\\cube\\transport_robot\\Core\\Inc",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Inc",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Inc\\Legacy",
-                "e:\\cube\\transport_robot\\Drivers\\CMSIS\\Device\\ST\\STM32F4xx\\Include",
-                "e:\\cube\\transport_robot\\Drivers\\CMSIS\\Include",
-                "e:\\cube\\transport_robot\\User",
-                "e:\\cube\\transport_robot\\MDK-ARM",
-                "e:\\cube\\transport_robot\\User\\Bsp\\Inc",
-                "e:\\cube\\transport_robot\\User\\Algorithm\\Inc",
-                "e:\\cube\\transport_robot\\User\\Device\\Inc",
-                "e:\\cube\\transport_robot\\User\\App\\Inc",
-                "e:\\cube\\transport_robot\\Core\\Src",
-                "e:\\cube\\transport_robot\\Drivers\\STM32F4xx_HAL_Driver\\Src",
-                "e:\\cube\\transport_robot\\User\\Device\\Snc",
-                "e:\\cube\\transport_robot\\User\\Bsp\\Src",
-                "e:\\cube\\transport_robot\\User\\Algorithm\\Src",
-                "e:\\cube\\transport_robot\\MDK-ARM\\RTE\\_transport_robot",
-                "D:\\Program Files\\keil\\ARM\\CMSIS-DSP\\1.17.0\\Include",
-                "D:\\Program Files\\keil\\ARM\\CMSIS-DSP\\1.17.0\\PrivateInclude",
-                "D:\\Program Files\\keil\\ARM\\CMSIS\\6.3.0\\CMSIS\\Core\\Include"
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include",
+                "${workspaceFolder}/User",
+                "${workspaceFolder}/MDK-ARM",
+                "${workspaceFolder}/User/Bsp/Inc",
+                "${workspaceFolder}/User/Algorithm/Inc",
+                "${workspaceFolder}/User/Device/Inc",
+                "${workspaceFolder}/User/App/Inc",
+                "${workspaceFolder}/MDK-ARM/RTE/_transport_robot",
+                "D:/Program Files/keil/ARM/CMSIS-DSP/1.17.0/Include",
+                "D:/Program Files/keil/ARM/CMSIS-DSP/1.17.0/PrivateInclude",
+                "D:/Program Files/keil/ARM/CMSIS/6.3.0/CMSIS/Core/Include"
             ],
             "defines": [
                 "USE_HAL_DRIVER",
                 "STM32F407xx",
+                "_RTE_",
+                "__UVISION_VERSION=543",
                 "__alignof__(x)=",
                 "__asm(x)=",
                 "__asm__(x)=",
@@ -86,13 +83,16 @@
                 "__builtin_arm_ssat(x,y)=0U",
                 "__builtin_arm_usat(x,y)=0U",
                 "__builtin_arm_ldaex(x)=0U",
-                "__builtin_arm_stlex(x,y)=0U",
-                "__GNUC__=4",
-                "__GNUC_MINOR__=2",
-                "__GNUC_PATCHLEVEL__=1"
+                "__builtin_arm_stlex(x,y)=0U"
             ],
             "cStandard": "c99",
-            "intelliSenseMode": "windows-clang-arm"
+            "intelliSenseMode": "windows-clang-arm",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ],
     "version": 4

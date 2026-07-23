@@ -3,6 +3,7 @@
 #include "jy61p.h"
 #include "chassis.h"
 #include "pid.h"
+#include <math.h>
 
 // ==============================================================================
 //  自车体正方向的右前轮开始，逆时针电机编号依次从0递增
@@ -68,7 +69,7 @@ void motor_speed_control(int16_t *speeds ){
 }
 void  motor_angle_control(float angle){
     float wz1,yaw_caculate;
-    while(abs(calculate_angle_error(Yaw,angle))>=2.5f){
+    while(fabsf(calculate_angle_error(Yaw,angle))>=2.5f){
         wz1=PID_Angle_Position(&PID_straight, Yaw, angle, 3000);
         if(wz1>0){
            calculate_motor_speeds(0,-(wz1+front_wz));

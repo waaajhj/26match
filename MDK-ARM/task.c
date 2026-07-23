@@ -2,7 +2,7 @@
 #include "main.h"
 #include "pid.h"
 #include "sensor.h"
-#include "oled.h"
+#include "OLED.h"
 #include "jy61p.h"
 #include "arm.h"
 #include "chassis.h"
