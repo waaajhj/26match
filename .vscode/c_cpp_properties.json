@@ -17,8 +17,6 @@
                 "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
                 "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
                 "${workspaceFolder}/Drivers/CMSIS/Include",
-                "${workspaceFolder}/User",
-                "${workspaceFolder}/MDK-ARM",
                 "${workspaceFolder}/User/Bsp/Inc",
                 "${workspaceFolder}/User/Algorithm/Inc",
                 "${workspaceFolder}/User/Device/Inc",

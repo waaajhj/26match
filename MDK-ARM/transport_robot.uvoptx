@@ -166,7 +166,7 @@
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>1</BreakIfRCount>
-          <Filename>.\task.c</Filename>
+          <Filename>..\User\App\Src\task.c</Filename>
           <ExecCommand></ExecCommand>
           <Expression>\\transport_robot\task.c\212</Expression>
         </Bp>
@@ -182,7 +182,7 @@
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>0</BreakIfRCount>
-          <Filename>.\task.c</Filename>
+          <Filename>..\User\App\Src\task.c</Filename>
           <ExecCommand></ExecCommand>
           <Expression></Expression>
         </Bp>
@@ -236,7 +236,7 @@
         <Ww>
           <count>9</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\transport_robot\../MDK-ARM/DJI_Motor.c\x,0x0A</ItemText>
+          <ItemText>\\transport_robot\../User/Device/Src/DJI_Motor.c\x,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>10</count>
@@ -737,7 +737,7 @@
   </Group>
 
   <Group>
-    <GroupName>Device</GroupName>
+    <GroupName>User/Device</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -749,7 +749,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\DJI_Motor.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\DJI_Motor.c</PathWithFileName>
       <FilenameWithoutPath>DJI_Motor.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -761,7 +761,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\DJI_Motor.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\DJI_Motor.h</PathWithFileName>
       <FilenameWithoutPath>DJI_Motor.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -773,7 +773,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\jy61p.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\jy61p.c</PathWithFileName>
       <FilenameWithoutPath>jy61p.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -785,7 +785,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\jy61p.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\jy61p.h</PathWithFileName>
       <FilenameWithoutPath>jy61p.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -797,7 +797,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\OLED.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\OLED.c</PathWithFileName>
       <FilenameWithoutPath>OLED.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -809,7 +809,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\OLED.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\OLED.h</PathWithFileName>
       <FilenameWithoutPath>OLED.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -821,7 +821,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\OLED_Font.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\OLED_Font.h</PathWithFileName>
       <FilenameWithoutPath>OLED_Font.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -833,7 +833,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\sensor.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\sensor.c</PathWithFileName>
       <FilenameWithoutPath>sensor.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -845,7 +845,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\sensor.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\sensor.h</PathWithFileName>
       <FilenameWithoutPath>sensor.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -869,7 +869,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\User\Device\Snc\DM_Motor.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\DM_Motor.c</PathWithFileName>
       <FilenameWithoutPath>DM_Motor.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -881,7 +881,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\arm.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\arm.c</PathWithFileName>
       <FilenameWithoutPath>arm.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -893,7 +893,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\arm.h</PathWithFileName>
+      <PathWithFileName>..\User\Device\Inc\arm.h</PathWithFileName>
       <FilenameWithoutPath>arm.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -905,7 +905,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\User\Device\Snc\maixcam.c</PathWithFileName>
+      <PathWithFileName>..\User\Device\Src\maixcam.c</PathWithFileName>
       <FilenameWithoutPath>maixcam.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -925,7 +925,7 @@
   </Group>
 
   <Group>
-    <GroupName>Bsp</GroupName>
+    <GroupName>User/Bsp</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -981,7 +981,7 @@
   </Group>
 
   <Group>
-    <GroupName>Algorithm</GroupName>
+    <GroupName>User/Algorithm</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -1037,7 +1037,7 @@
   </Group>
 
   <Group>
-    <GroupName>App</GroupName>
+    <GroupName>User/App</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -1049,7 +1049,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\chassis.c</PathWithFileName>
+      <PathWithFileName>..\User\App\Src\chassis.c</PathWithFileName>
       <FilenameWithoutPath>chassis.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -1061,7 +1061,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\chassis.h</PathWithFileName>
+      <PathWithFileName>..\User\App\Inc\chassis.h</PathWithFileName>
       <FilenameWithoutPath>chassis.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -1073,7 +1073,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\task.c</PathWithFileName>
+      <PathWithFileName>..\User\App\Src\task.c</PathWithFileName>
       <FilenameWithoutPath>task.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -1085,7 +1085,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\task.h</PathWithFileName>
+      <PathWithFileName>..\User\App\Inc\task.h</PathWithFileName>
       <FilenameWithoutPath>task.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -1097,7 +1097,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\route.c</PathWithFileName>
+      <PathWithFileName>..\User\App\Src\route.c</PathWithFileName>
       <FilenameWithoutPath>route.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -1109,7 +1109,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\route.h</PathWithFileName>
+      <PathWithFileName>..\User\App\Inc\route.h</PathWithFileName>
       <FilenameWithoutPath>route.h</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>

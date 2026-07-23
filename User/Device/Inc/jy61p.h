@@ -4,8 +4,10 @@
 #include "stm32f4xx_hal.h"
 void Hal_Uart_Init(void);
 void jy61p_ReceiveData(uint8_t RxData);
+void WT101_ReceiveData(uint8_t RxData);
 void BT24_ReceiveData(uint8_t RxData);
-void delay_ms(uint32_t ms);
+void WT101_START(void);
+//void delay_ms(uint32_t ms);
 void JY61P_BAUD(void);
 void JY61P_START(void);
 extern float Roll,Pitch,Yaw;

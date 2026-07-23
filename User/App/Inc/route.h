@@ -3,18 +3,24 @@
 
 #include "main.h"
 
-/*----------------------Òý½Å¶¨Òå---------------------------*/
+/*----------------------ï¿½ï¿½ï¿½Å¶ï¿½ï¿½ï¿½---------------------------*/
 
 
 
-/*----------------------Íâ²¿½Ó¿Úº¯Êý---------------------------*/
-void begin_part(void);			// ÆðÊ¼²¿·Öº¯Êý
-void goto_43_part(void);		// È¥Íù4ºÅÆ½Ì¨ºÍ3ºÅÆ½Ì¨º¯Êý
-void goto_42_part(void);		// È¥Íù4ºÅÆ½Ì¨ºÍ2ºÅ¾°µãº¯Êý
-void goto_31_part(void);		// È¥Íù3ºÅÆ½Ì¨ºÍ1ºÅ¾°µãº¯Êý
-void across_door_goto(void);	// ´©ÃÅº¯Êý£¨Ç°°ë³Ì£©
-void goto_78_part(void);		// È¥Íù78Æ½Ì¨µÄº¯Êý
-void goto_65_part_new(void);		// È¥Íù65Æ½Ì¨µÄº¯Êý
-void across_door_return(void);	// ´©ÃÅº¯Êý£¨ºó°ë³Ì£©
-void return_part(void);			// ·µ»Øº¯Êý
+/*----------------------ï¿½â²¿ï¿½Ó¿Úºï¿½ï¿½ï¿½---------------------------*/
+void begin_part(void);			// ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½Öºï¿½ï¿½ï¿½
+void goto_3_part(void);		// È¥ï¿½ï¿½4ï¿½ï¿½Æ½Ì¨ï¿½ï¿½3ï¿½ï¿½Æ½Ì¨ï¿½ï¿½ï¿½ï¿½
+void goto_42_part(void);		// È¥ï¿½ï¿½4ï¿½ï¿½Æ½Ì¨ï¿½ï¿½2ï¿½Å¾ï¿½ï¿½ãº¯ï¿½ï¿½
+void goto_31_part(void);		// È¥ï¿½ï¿½3ï¿½ï¿½Æ½Ì¨ï¿½ï¿½1ï¿½Å¾ï¿½ï¿½ãº¯ï¿½ï¿½
+void across_door_goto(void);	// ï¿½ï¿½ï¿½Åºï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½Ì£ï¿½
+void goto_78_part(void);		// È¥ï¿½ï¿½78Æ½Ì¨ï¿½Äºï¿½ï¿½ï¿½
+void goto_65_part_new(void);		// È¥ï¿½ï¿½65Æ½Ì¨ï¿½Äºï¿½ï¿½ï¿½
+void across_door_return(void);	// ï¿½ï¿½ï¿½Åºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì£ï¿½
+void return_part(void);			// ï¿½ï¿½ï¿½Øºï¿½ï¿½ï¿½
+void goto_6_part(void);
+void test_2L(void);
+void goto_6_part2(void);
+void goto_4_part_return(void);
+void goto_5_part(void);
+void route_2L(void);
 #endif

@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../User;../MDK-ARM;../User/Bsp/Inc;../User/Algorithm/Inc;../User/Device/Inc;../User/App/Inc</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../User/Bsp/Inc;../User/Algorithm/Inc;../User/Device/Inc;../User/App/Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -746,52 +746,52 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Device</GroupName>
+          <GroupName>User/Device</GroupName>
           <Files>
             <File>
               <FileName>DJI_Motor.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\DJI_Motor.c</FilePath>
+              <FilePath>..\User\Device\Src\DJI_Motor.c</FilePath>
             </File>
             <File>
               <FileName>DJI_Motor.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\DJI_Motor.h</FilePath>
+              <FilePath>..\User\Device\Inc\DJI_Motor.h</FilePath>
             </File>
             <File>
               <FileName>jy61p.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\jy61p.c</FilePath>
+              <FilePath>..\User\Device\Src\jy61p.c</FilePath>
             </File>
             <File>
               <FileName>jy61p.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\jy61p.h</FilePath>
+              <FilePath>..\User\Device\Inc\jy61p.h</FilePath>
             </File>
             <File>
               <FileName>OLED.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\OLED.c</FilePath>
+              <FilePath>..\User\Device\Src\OLED.c</FilePath>
             </File>
             <File>
               <FileName>OLED.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\OLED.h</FilePath>
+              <FilePath>..\User\Device\Inc\OLED.h</FilePath>
             </File>
             <File>
               <FileName>OLED_Font.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\OLED_Font.h</FilePath>
+              <FilePath>..\User\Device\Inc\OLED_Font.h</FilePath>
             </File>
             <File>
               <FileName>sensor.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\sensor.c</FilePath>
+              <FilePath>..\User\Device\Src\sensor.c</FilePath>
             </File>
             <File>
               <FileName>sensor.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\sensor.h</FilePath>
+              <FilePath>..\User\Device\Inc\sensor.h</FilePath>
             </File>
             <File>
               <FileName>DM_Motor.h</FileName>
@@ -801,22 +801,22 @@
             <File>
               <FileName>DM_Motor.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\Device\Snc\DM_Motor.c</FilePath>
+              <FilePath>..\User\Device\Src\DM_Motor.c</FilePath>
             </File>
             <File>
               <FileName>arm.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\arm.c</FilePath>
+              <FilePath>..\User\Device\Src\arm.c</FilePath>
             </File>
             <File>
               <FileName>arm.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\arm.h</FilePath>
+              <FilePath>..\User\Device\Inc\arm.h</FilePath>
             </File>
             <File>
               <FileName>maixcam.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\User\Device\Snc\maixcam.c</FilePath>
+              <FilePath>..\User\Device\Src\maixcam.c</FilePath>
             </File>
             <File>
               <FileName>maixcam.h</FileName>
@@ -826,7 +826,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Bsp</GroupName>
+          <GroupName>User/Bsp</GroupName>
           <Files>
             <File>
               <FileName>bsp_can.c</FileName>
@@ -851,7 +851,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Algorithm</GroupName>
+          <GroupName>User/Algorithm</GroupName>
           <Files>
             <File>
               <FileName>pid.c</FileName>
@@ -876,37 +876,37 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>App</GroupName>
+          <GroupName>User/App</GroupName>
           <Files>
             <File>
               <FileName>chassis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\chassis.c</FilePath>
+              <FilePath>..\User\App\Src\chassis.c</FilePath>
             </File>
             <File>
               <FileName>chassis.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\chassis.h</FilePath>
+              <FilePath>..\User\App\Inc\chassis.h</FilePath>
             </File>
             <File>
               <FileName>task.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\task.c</FilePath>
+              <FilePath>..\User\App\Src\task.c</FilePath>
             </File>
             <File>
               <FileName>task.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\task.h</FilePath>
+              <FilePath>..\User\App\Inc\task.h</FilePath>
             </File>
             <File>
               <FileName>route.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\route.c</FilePath>
+              <FilePath>..\User\App\Src\route.c</FilePath>
             </File>
             <File>
               <FileName>route.h</FileName>
               <FileType>5</FileType>
-              <FilePath>.\route.h</FilePath>
+              <FilePath>..\User\App\Inc\route.h</FilePath>
             </File>
           </Files>
         </Group>
