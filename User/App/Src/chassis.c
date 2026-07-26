@@ -538,7 +538,7 @@ void S_regulate_teeterboard_nocorrect(float start_speed, float target_speed,floa
 
  		// 计算当前速度
  		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
-		record_angle-=updown_stair_error_2L();
+		
 		if(record_angle > 360){record_angle -= 360;}	
 		else if(record_angle < 0){record_angle += 360;}
 // 		if(current_time > t_mid)

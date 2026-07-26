@@ -70,8 +70,7 @@
 // 定义数据包结构（确保与发送端一致）
 typedef struct {
     uint8_t header;         // 包头 0xAA
-    int16_t centerpoint_x;  // 中心点X坐标
-    int16_t centerpoint_y;  // 中心点Y坐标
+    uint16_t centerpoint_x;  // 中心点X坐标
     uint8_t footer;         // 包尾 0x55
 } __attribute__((packed)) PointPacket3;
 
@@ -88,8 +87,15 @@ void ProcessPacket(void);
 int FindPacket(void) ;
 int isCoordinateValid(int x, int y);
 // 外部变量声明
+// point_packet只在收到包头、包尾正确的完整数据包后更新
 extern volatile ReceiveState rx_state;
-extern PointPacket3 point_packet;
+extern volatile PointPacket3 point_packet;
+extern volatile uint8_t point_packet_ready;
+extern volatile uint32_t point_packet_rx_count;
+extern volatile uint32_t point_packet_error_count;
+extern volatile uint32_t uart4_rx_byte_count;
+extern volatile uint32_t uart4_last_receive_status;
+extern volatile uint32_t uart4_last_error_code;
 extern int center_points[2];
 extern uint8_t x_arrived;
 

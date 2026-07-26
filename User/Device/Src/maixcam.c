@@ -15,7 +15,14 @@ typedef struct {
 } RingBuffer;
 
 static RingBuffer rx_ring_buffer = {0};
-PointPacket3 point_packet;
+volatile PointPacket3 point_packet;
+volatile ReceiveState rx_state = WAIT_HEADER;
+volatile uint8_t point_packet_ready = 0;
+volatile uint32_t point_packet_rx_count = 0;
+volatile uint32_t point_packet_error_count = 0;
+volatile uint32_t uart4_rx_byte_count = 0;
+volatile uint32_t uart4_last_receive_status = HAL_ERROR;
+volatile uint32_t uart4_last_error_code = HAL_UART_ERROR_NONE;
 
 // 添加滤波相关变量
 static int last_valid_center_points[2] = {0, 0};  // 上一次有效的坐标
@@ -33,14 +40,9 @@ uint8_t U3_rx_data[U3_DATASIZE];
 uint8_t U2_rx_data[U2_DATASIZE];
 uint8_t U2_RxByte = 0;
 uint8_t U2_byte_buf[U2_DATASIZE];
-static volatile uint16_t U2_byte_index = 0;
-
-typedef enum {
-    U2_WAIT_AA = 0,
-    U2_WAIT_BB,
-    U2_RECV_PAYLOAD
-} U2_RxState_t;
-static volatile U2_RxState_t u2_state = U2_WAIT_AA;
+static uint8_t uart4_rx_byte = 0;
+static uint8_t uart4_point_packet_index = 0;
+static PointPacket3 uart4_point_packet_buffer;
 // 蓝牙串口接收缓冲区
 
 // 最大允许的坐标变化值（可根据实际需求调整）
@@ -73,7 +75,14 @@ void Hal_Uart_Init(void){
 	  HAL_UART_Receive_IT(&huart3, &RxData, 1);  // 接收1个字节数据
       HAL_UART_Receive_IT(&huart2, &RxData_101, 1);  // 接收1个字节数据
 	  HAL_UART_Receive_IT(&huart6, (uint8_t *)U3_rx_data, U3_DATASIZE);
-	  HAL_UART_Receive_IT(&huart4, &U2_RxByte, 1);
+      rx_state = WAIT_HEADER;
+      uart4_point_packet_index = 0;
+      point_packet_ready = 0;
+      uart4_last_receive_status =
+          HAL_UART_Receive_IT(&huart4, &uart4_rx_byte, 1);
+      if (uart4_last_receive_status != HAL_OK) {
+          point_packet_error_count++;
+      }
 }
 
 // 检查坐标数据是否合理
@@ -142,42 +151,8 @@ void ProcessPacket(void) {
     
     // 检查包头和包尾是否正确
     if(point_packet.header == 0xAA && point_packet.footer == 0x55) {
-        // 获取当前时间
-        uint32_t current_time = HAL_GetTick();
+
         
-        // 提取坐标数据
-        int new_center_x = point_packet.centerpoint_x;
-        int new_center_y = point_packet.centerpoint_y;
-        
-        // 检查数据是否有效
-        if(isCoordinateValid(new_center_x, new_center_y)) {
-            // 数据有效，更新坐标
-            center_points[0] = new_center_x;
-            center_points[1] = new_center_y;
-            
-            // 保存当前有效数据和时间
-            last_valid_center_points[0] = new_center_x;
-            last_valid_center_points[1] = new_center_y;
-            last_valid_time = current_time;
-            first_valid_data = 1;
-        } else {
-            // 数据无效，检查是否超时
-            if(first_valid_data && (current_time - last_valid_time) < MAX_DATA_INTERVAL) {
-                // 未超时，保持上一次的有效数据
-                center_points[0] = last_valid_center_points[0];
-                center_points[1] = last_valid_center_points[1];
-            } else {
-                // 超时或第一次数据就无效，可以考虑清零或保持默认值
-                // 这里选择保持上一次数据（如果有的话）或使用默认值
-                if(!first_valid_data) {
-                    center_points[0] = 0;
-                    center_points[1] = 0;
-                } else {
-                    center_points[0] = last_valid_center_points[0];
-                    center_points[1] = last_valid_center_points[1];
-                }
-            }
-        }
     }
 }
 
@@ -203,60 +178,77 @@ void usart6_receive(uint8_t data[])
 // UART接收完成回调函数
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  // 串口2-视觉相关处理 =================================================
+  // UART4视觉数据接收 =================================================
     if (huart->Instance == UART4)
     {
-        uint8_t b = U2_RxByte;
+        uint8_t received_byte = uart4_rx_byte;
+        uint8_t *packet_bytes = (uint8_t *)&uart4_point_packet_buffer;
+        HAL_StatusTypeDef receive_status;
 
-        switch(u2_state) {
-            case U2_WAIT_AA:
-                if (b == 0xAA) {
-                    U2_byte_buf[0] = 0xAA;
-                    u2_state = U2_WAIT_BB;
-                }
-                break;
+        uart4_rx_byte_count++;
 
-            case U2_WAIT_BB:
-                if (b == 0xBB) {
-                    U2_byte_buf[1] = 0xBB;
-                    U2_byte_index = 2;
-                    u2_state = U2_RECV_PAYLOAD;
-                } else if (b == 0xAA) {
-                    // 连续0xAA的情况，保持在等待第二个头
-                    U2_byte_buf[0] = 0xAA;
-                    u2_state = U2_WAIT_BB;
-                } else {
-                    // 非期望字节，回到等待 0xAA
-                    u2_state = U2_WAIT_AA;
-                }
-                break;
-
-            case U2_RECV_PAYLOAD:
-                if (U2_byte_index < U2_DATASIZE) {
-                    U2_byte_buf[U2_byte_index++] = b;
-                } else {
-                    // 防护：如果索引越界则重置状态
-                    u2_state = U2_WAIT_AA;
-                    U2_byte_index = 0;
-                }
-
-                // 收齐一个完整帧（固定长度）
-                if (U2_byte_index >= U2_DATASIZE) {
-                    // 简单校验：尾字节为 0xFF（保持和原代码一致）
-                    if (U2_byte_buf[U2_DATASIZE - 1] == 0xFF) {
-                        usart2_receive(U2_byte_buf);
-                    }
-                    // 无论是否有效，都重置状态机准备下一个包
-                    u2_state = U2_WAIT_AA;
-                    U2_byte_index = 0;
-                    // 可选择清空缓冲区（非必要）
-                    // memset(U2_byte_buf, 0, sizeof(U2_byte_buf));
-                }
-                break;
+        /*
+         * 先保存本次字节并立刻挂接下一次单字节接收，尽量缩短UART4
+         * 未处于接收状态的时间，避免连续数据导致丢字节和包错位。
+         */
+        receive_status = HAL_UART_Receive_IT(&huart4, &uart4_rx_byte, 1);
+        uart4_last_receive_status = receive_status;
+        if (receive_status != HAL_OK) {
+            point_packet_error_count++;
         }
 
-        // 继续接收下一个字节
-        HAL_UART_Receive_IT(&huart4, &U2_RxByte, 1);
+        /*
+         * PACKET_COMPLETE 表示 point_packet 中保存着一个完整有效包。
+         * 下一个字节到来时再开始接收新包，期间不进行数据处理。
+         */
+        if (rx_state == PACKET_COMPLETE) {
+            rx_state = WAIT_HEADER;
+            uart4_point_packet_index = 0;
+        }
+
+        switch (rx_state) {
+            case WAIT_HEADER:
+                if (received_byte == 0xAA) {
+                    packet_bytes[0] = received_byte;
+                    uart4_point_packet_index = 1;
+                    rx_state = RECEIVE_DATA;
+                }
+                break;
+
+            case RECEIVE_DATA:
+                if (uart4_point_packet_index < sizeof(PointPacket3)) {
+                    packet_bytes[uart4_point_packet_index++] = received_byte;
+                }
+
+                if (uart4_point_packet_index >= sizeof(PointPacket3)) {
+                    if (uart4_point_packet_buffer.header == 0xAA &&
+                        uart4_point_packet_buffer.footer == 0x55) {
+                        point_packet.header = uart4_point_packet_buffer.header;
+                        point_packet.centerpoint_x =
+                            uart4_point_packet_buffer.centerpoint_x;
+                        point_packet.footer = uart4_point_packet_buffer.footer;
+                        point_packet_rx_count++;
+                        point_packet_ready = 1;
+                        rx_state = PACKET_COMPLETE;
+                        uart4_point_packet_index = 0;
+                    } else if (received_byte == 0xAA) {
+                        point_packet_error_count++;
+                        packet_bytes[0] = received_byte;
+                        uart4_point_packet_index = 1;
+                        rx_state = RECEIVE_DATA;
+                    } else {
+                        point_packet_error_count++;
+                        uart4_point_packet_index = 0;
+                        rx_state = WAIT_HEADER;
+                    }
+                }
+                break;
+
+            default:
+                uart4_point_packet_index = 0;
+                rx_state = WAIT_HEADER;
+                break;
+        }
         return;
     }
 	if(huart->Instance == USART3){//如果是jy61p的数据
@@ -340,6 +332,24 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 // UART错误回调函数
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+    if (huart->Instance == UART4) {
+        uart4_last_error_code = huart->ErrorCode;
+        point_packet_error_count++;
+
+        /*
+         * 溢出错误会终止HAL的中断接收，丢弃当前半包后重新启动
+         * 单字节接收。其他非阻塞错误由HAL继续原接收过程。
+         */
+        if ((huart->ErrorCode & HAL_UART_ERROR_ORE) != 0U) {
+            uart4_point_packet_index = 0;
+            rx_state = WAIT_HEADER;
+            __HAL_UART_CLEAR_OREFLAG(huart);
+            uart4_last_receive_status =
+                HAL_UART_Receive_IT(&huart4, &uart4_rx_byte, 1);
+        }
+        return;
+    }
+
     if(huart->Instance == USART2) {
         // 清除错误标志
         __HAL_UART_CLEAR_OREFLAG(huart);

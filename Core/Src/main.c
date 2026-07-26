@@ -121,7 +121,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_CAN2_Init();
   /* USER CODE BEGIN 2 */
-	vision_init();
+
 	HAL_TIM_Base_Start_IT(&htim3);
   PID_Init();
   Hal_Uart_Init();

@@ -291,7 +291,7 @@ float PID_Angle_Position(PID_Position_Struct *PID, float Current, float Target,f
   PID->Integral += err;                                                                                             //���»���
   differential = (float)err - (float)PID->Error_Last1;                                                              //����΢��
   out = (float)PID->Kp * (float)err + (float)PID->Ki * (float)PID->Integral + (float)PID->Kd * (float)differential; //����PID
-  PID->Error_Last1 = err;       //�������
+  PID->Error_Last1 = err;      
    if(out>=limit){
 	  out=limit;
   }
