@@ -149,41 +149,8 @@ int main(void)
   PIDInit(&Motor2SpeedPID, &speed_config);
   PIDInit(&Motor3SpeedPID, &speed_config);
   PIDInit(&Motor4SpeedPID, &speed_config);
-		//测试代码
-//		Arm_down();
-//spin180();
-		while(Start_flag==1){}
-		begin_part();
-		goto_3_part();
-		across_door_goto();
-	  goto_6_part();
-	  test_2L();
-////		route_2L();
-    goto_5_part();
-    across_door_return();
-    goto_4_part_return();
-		while(Start_flag==0){}
-		begin_part();
-		goto_3_part();
-		across_door_goto();
-	  goto_6_part();
-	  test_2L();
-    goto_5_part();
-    across_door_return();
-    goto_4_part_return();
-//		Arm_down();
-//		goto_6_part();
-		
-//		delay_ms(500);
-//	S_regulate_track(0, 6000, 500);
-//	S_regulate_track(6000, 10000, 400);
-	
-//	while(scan_stair()){track_dynamic_Speed(10000);}//?????
-//  updown_low_stair();
-//	track_lowSpeed_count(2000);
-//	S_regulate_track(8000, 4000, 500);
-//	motor_stop();
-//		calculate_motor_speeds(0,1000);
+  DMMotorEnable(DM_PITCH_TX_ID,MIT_MODE);//电机使能
+  DM_MitControl(DM_PITCH_TX_ID, MIT_MODE,0, 0, 5, 0.1, 0);//电机回0
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -194,12 +161,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//		walkspin_dynamic(0, 6000);
-//track_dynamic_Speed_2Line(4000);
-//		track_dynamic_Speed(8000);
-//		time = read_time();
-//      track_dynamic_Speed(8000);
-//    calculate_motor_speeds(0,1000);		
+
+
   }
   /* USER CODE END 3 */
 }

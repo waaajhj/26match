@@ -50,10 +50,10 @@ void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData)
     switch (Motor)
     {
     case DJI1_Motor_Type:
-        hcan = &hcan1;
+        hcan = &hcan2;
         break;
     case DM_Motor_Type:
-        hcan = &hcan2;
+        hcan = &hcan1;
         break;       
     default:
         return; // 无效电机类型，直接返回
@@ -101,7 +101,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
 	CAN_RxHeaderTypeDef RxHead;
 	uint8_t Rxdata[8];
-	if (hcan == &hcan1)
+	if (hcan == &hcan2)
 	{
 		HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHead, Rxdata);
 		switch (RxHead.StdId) // 根据StdID筛选出底盘M2006电机
@@ -120,7 +120,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 		default:
 			break;
 		}
-	}else if(hcan == &hcan2){
+	}else if(hcan == &hcan1){
 		 HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHead, Rxdata);
         switch (RxHead.StdId)
         {
