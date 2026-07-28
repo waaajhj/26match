@@ -63,7 +63,7 @@ void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData)
     if (HAL_CAN_AddTxMessage(hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
     {
         // 发送失败，调用错误处理函数
-        Error_Handler();
+//        Error_Handler();
     }
 }
 /**

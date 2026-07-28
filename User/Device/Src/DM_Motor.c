@@ -189,10 +189,19 @@ void DM_MitControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Pos, float
     else
     {
         if (GetMotorState(MotorID) == State)
-            MitControl(MotorID, Pos, Vel, Kp, Kd, Tor);
+            MitControl(MotorID, DM_pos_limit(Pos), Vel, Kp, Kd, Tor);
         else if (State == MOTOR_ENABLE)
             DMMotorEnable(MotorID, MIT_MODE);
         else
             DMMotorDisable(MotorID, MIT_MODE);
     }
+}
+float DM_pos_limit(float pos)//电机限位函数
+{
+    if (pos < DM_POS_LIMIT_MIN)
+        return DM_POS_LIMIT_MIN;
+    else if (pos > DM_POS_LIMIT_MAX)
+        return DM_POS_LIMIT_MAX;
+    else
+        return pos;
 }

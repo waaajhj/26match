@@ -150,7 +150,10 @@ int main(void)
   PIDInit(&Motor3SpeedPID, &speed_config);
   PIDInit(&Motor4SpeedPID, &speed_config);
   DMMotorEnable(DM_PITCH_TX_ID,MIT_MODE);//电机使能
-  DM_MitControl(DM_PITCH_TX_ID, MIT_MODE,0, 0, 5, 0.1, 0);//电机回0
+	HAL_Delay(100);
+  DM_Pitch_ReturnZero();//电机回0
+//	DMMotorZeroSet(DM_PITCH_TX_ID, MIT_MODE);
+//  DM_MitControl(DM_PITCH_TX_ID,MOTOR_ENABLE, 0, 0, 2, 0.1, 0);//电机回0
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -161,7 +164,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
 
   }
   /* USER CODE END 3 */

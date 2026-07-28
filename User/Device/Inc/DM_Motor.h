@@ -3,6 +3,9 @@
 
 #include "stdint.h"
 
+//电机电控限位参数
+#define DM_POS_LIMIT_MIN -12.5663706144f
+#define DM_POS_LIMIT_MAX 12.5663706144f
 // 电机转速滤波系数
 #define DM_OMEGA_LPF_RC 0.15f
 
@@ -74,5 +77,5 @@ void DMMotorZeroSet(DM_Motor_TX_ID_e MotorID, MotorControl_e Mode);
 void DMMotorClearErrors(DM_Motor_TX_ID_e MotorID, MotorControl_e Mode);
 void MitControl(DM_Motor_TX_ID_e MotorID, float Pos, float Vel, float Kp, float Kd, float Tor);
 void DM_MitControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Pos, float Vel, float Kp, float Kd, float Tor);
-
+float DM_pos_limit(float pos);
 #endif
