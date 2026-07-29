@@ -220,7 +220,7 @@ void track_dynamic_Speed(float speed){
 //	else{
 //		out_flag_new = 0;
 //	}
-    calculate_motor_speeds(speed,W_out);
+//    calculate_motor_speeds(speed,W_out);
 }
 void track_dynamic_Speed_2Line(float speed){
     bais = bais_judgment_2Line();

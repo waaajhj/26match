@@ -25,7 +25,7 @@ void update_sensor_flag(int *sensor_array, int *index, int *flag) {
     *flag = (sum >= SENSOR_THRESHOLD);
     *index = 0;
 }
-int scan_flag = 0; // 定义全局扫描标志
+int scan_flag = 1; // 定义全局扫描标志
 /**
  * @brief 判断偏差值
  * 
@@ -59,22 +59,22 @@ float bais_judgment(void) {
     if (line[3]  == scan_flag) { bais1 += 30; count++; }
     if (line[2]  == scan_flag) { bais1 += 45; count++; }
     if (line[1]  == scan_flag) { bais1 += 60; count++; }
-    if (line[0]  == 0)        { bais1 += 70; count++; }
+    if (line[0]  == scan_flag) { bais1 += 70; count++; }
 
-    // 第三步：连续性检测（对索引升序判断）
-    if (count >= 2) {
-        // light_indices 已按 i 从小到大存入（0~11），所以是升序
-        uint8_t continuous = 1;
-        for (int i = 1; i < n; i++) {
-            if (light_indices[i] - light_indices[i-1] > 1) {
-                continuous = 0;
-                break;
-            }
-        }
-        if (!continuous) {
-            return 0.0f; // 不连续，返回0
-        }
-    }
+    // // 第三步：连续性检测（对索引升序判断）
+    // if (count >= 2) {
+    //     // light_indices 已按 i 从小到大存入（0~11），所以是升序
+    //     uint8_t continuous = 1;
+    //     for (int i = 1; i < n; i++) {
+    //         if (light_indices[i] - light_indices[i-1] > 1) {
+    //             continuous = 0;
+    //             break;
+    //         }
+    //     }
+    //     if (!continuous) {
+    //         return 0.0f; // 不连续，返回0
+    //     }
+    // }
 
     // 第四步：原有数量滤波
     if (count > 0 && count < 3) {

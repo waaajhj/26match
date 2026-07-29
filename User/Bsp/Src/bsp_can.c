@@ -25,24 +25,35 @@ motor_measure_t chassis_motor[4] = {0}; // 底盘2006电机数据[0:3]
 static CAN_TxHeaderTypeDef chassis_tx_message; // 底盘CAN发送结构体
 static uint8_t chassis_can_send_data[8];	   // 底盘CAN发送数据
 DM_Motor_t Gimbal_Motor[2] = {0};   // 达妙Yaw轴电机数据
+DM_Motor_t Chassis_Motor[2] = {0}; // 达妙底盘电机数据
 /*---------------------------------------------------------------------------------------------------*/
 /**
- * @brief CAN数据发送函数（基于普通CAN）
+ * @brief 发送指定数据长度的标准 CAN 数据帧。
  * @param Motor 电机类型
  * @param ID CAN报文ID
  * @param TxData 发送数据
+ * @param DataLength CAN 数据长度，经典 CAN 有效范围为 1~8 字节
+ * @note 本函数不阻塞等待报文发送完成；无效数据长度会直接放弃发送。
  */
-void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData)
+void CANTransmitWithDLC(MotorType_e Motor,
+                        uint16_t ID,
+                        uint8_t *TxData,
+                        uint8_t DataLength)
 {
     CAN_TxHeaderTypeDef TxHeader;
     uint32_t TxMailbox;
+
+    if (DataLength == 0U || DataLength > 8U)
+    {
+        return;
+    }
 
     // 配置CAN报文头
     TxHeader.StdId = ID;                  // 标准ID
     TxHeader.ExtId = 0x00;                // 扩展ID（未使用）
     TxHeader.IDE = CAN_ID_STD;            // 标准帧
     TxHeader.RTR = CAN_RTR_DATA;          // 数据帧
-    TxHeader.DLC = 8;                     // 数据长度为8字节
+    TxHeader.DLC = DataLength;
     TxHeader.TransmitGlobalTime = DISABLE;
 
     // 根据电机类型选择对应的CAN句柄
@@ -65,6 +76,15 @@ void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData)
         // 发送失败，调用错误处理函数
 //        Error_Handler();
     }
+}
+
+/**
+ * @brief 发送原工程使用的 8 字节标准 CAN 数据帧。
+ * @note 保留该接口以兼容现有电机控制代码。
+ */
+void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData)
+{
+    CANTransmitWithDLC(Motor, ID, TxData, 8U);
 }
 /**
  * @brief  CAN过滤器初始化
@@ -130,6 +150,12 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 		case DM_PITCH_RX_ID:
             DMMotorDecode(&Gimbal_Motor[1], Rxdata);
             break;
+		case DM_Chassis1_RX_ID:
+			DMMotorDecode(&Chassis_Motor[0], Rxdata);
+			break;
+		case DM_Chassis2_RX_ID:
+			DMMotorDecode(&Chassis_Motor[1], Rxdata);
+			break;
         default:
             break;
         }
@@ -236,6 +262,10 @@ uint8_t GetMotorState(DM_Motor_TX_ID_e DMMotorID)
         return Gimbal_Motor[0].measure.State;
     case DM_PITCH_TX_ID:
         return Gimbal_Motor[1].measure.State;
+    case DM_Chassis1_TX_ID:
+        return Chassis_Motor[0].measure.State;
+    case DM_Chassis2_TX_ID:
+        return Chassis_Motor[1].measure.State;
     default:
         break;
     }

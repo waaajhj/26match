@@ -97,12 +97,19 @@ typedef struct // config parameter
     float Output_LPF_RC; // RC = 1/omegac
     float Derivative_LPF_RC;
 } PID_Init_Config_s;
-//经典位置pid结构体
+/**
+ * @brief 经典位置式 PID 的参数和运行状态。
+ *
+ * Current、Target 及输出的单位由具体控制对象决定，同一个实例不得在多个
+ * 控制对象之间混用，否则积分和上次误差会互相影响。
+ */
 typedef struct __PID_Position_Struct
 {
-  float Kp, Ki, Kd;     //ϵ��
-  float Integral;    //����(�ۻ�)
-  float Error_Last1; //�ϴ����
+  float Kp;          // 比例系数
+  float Ki;          // 积分系数
+  float Kd;          // 微分系数
+  float Integral;    // 误差累加值，PID_Init() 时清零
+  float Error_Last1; // 上一次误差，用于计算离散微分项
 } PID_Position_Struct;
 typedef struct
 {
@@ -115,15 +122,7 @@ float PIDCalculate(PIDInstance *pid, float set, float measure);
 float PID_Angle_Position(PID_Position_Struct *PID, float Current, float Target,float limit);
 void PIDClear(PIDInstance *pid);
 float calculate_angle_error(float current, float target);
-static void f_Trapezoid_Intergral(PIDInstance *pid);
 void PID_Init(void);
-static void f_Changing_Integration_Rate(PIDInstance *pid);
-static void f_Integral_Limit(PIDInstance *pid);
-static void f_Derivative_On_Measurement(PIDInstance *pid);
-static void f_Derivative_Filter(PIDInstance *pid);
-static void f_Output_Limit(PIDInstance *pid);
-static void f_Output_Filter(PIDInstance *pid);
-static void f_PID_ErrorHandle(PIDInstance *pid);
 float PID_Position(PID_Position_Struct *PID, float Current, float Target,float limit);
 extern PIDInstance Motor1SpeedPID;
 extern PIDInstance Motor2SpeedPID;
@@ -134,5 +133,6 @@ extern PID_Position_Struct PID_sensor1;
 extern PID_Position_Struct PID_sensor2;
 extern PID_Position_Struct PID_sensor3;
 extern PID_Position_Struct PID_YAW;
+extern PID_Position_Struct PID_DM_Pitch_Position;
 #endif
 

@@ -4,8 +4,8 @@
 #include "stdint.h"
 
 //电机电控限位参数
-#define DM_POS_LIMIT_MIN -12.5663706144f
-#define DM_POS_LIMIT_MAX 12.5663706144f
+#define DM_POS_LIMIT_MIN -0.7f
+#define DM_POS_LIMIT_MAX 1.04f
 // 电机转速滤波系数
 #define DM_OMEGA_LPF_RC 0.15f
 
@@ -40,6 +40,8 @@ typedef enum
 {
     DM_YAW_TX_ID = 0x01,
     DM_PITCH_TX_ID = 0x02,
+    DM_Chassis1_TX_ID = 0x03,
+    DM_Chassis2_TX_ID = 0x04,
 } DM_Motor_TX_ID_e;
 
 /* 达妙电机反馈帧ID(Master ID) */
@@ -47,6 +49,8 @@ typedef enum
 {
     DM_YAW_RX_ID = 0x11,
     DM_PITCH_RX_ID = 0x12,
+    DM_Chassis1_RX_ID = 0x13,
+    DM_Chassis2_RX_ID = 0x14,
 } DM_Motor_RX_ID_e;
 
 /* 关节电机数据 */
@@ -77,5 +81,8 @@ void DMMotorZeroSet(DM_Motor_TX_ID_e MotorID, MotorControl_e Mode);
 void DMMotorClearErrors(DM_Motor_TX_ID_e MotorID, MotorControl_e Mode);
 void MitControl(DM_Motor_TX_ID_e MotorID, float Pos, float Vel, float Kp, float Kd, float Tor);
 void DM_MitControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Pos, float Vel, float Kp, float Kd, float Tor);
+void SpeedControl(DM_Motor_TX_ID_e MotorID, float Vel);
+void DM_SpeedControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Vel);
 float DM_pos_limit(float pos);
+float DM_speed_limit(float vel);
 #endif

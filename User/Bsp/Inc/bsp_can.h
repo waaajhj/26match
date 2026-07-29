@@ -78,6 +78,10 @@ typedef struct
 extern motor_measure_t chassis_motor[4];
 void CAN_Config(void);
 void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData);
+void CANTransmitWithDLC(MotorType_e Motor,
+                        uint16_t ID,
+                        uint8_t *TxData,
+                        uint8_t DataLength);
 void TriggerMotorCalibrate(void);
 uint8_t GetMotorState(DM_Motor_TX_ID_e DMMotorID);
 /*---------------电机电压电流控制函数---------------*/

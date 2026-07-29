@@ -140,16 +140,13 @@ int main(void)
 	  .Output_LPF_RC = 0.0f,
       .Improve = (PID_Improvement_e)(PID_Integral_Limit | PID_OutputFilter)};
 
-    PID_Init_Config_a angle_config = {
-      .Kp = 0.0f,
-      .Ki = 0.0f,
-      .Kd = 0.0f,
-    };
   PIDInit(&Motor1SpeedPID, &speed_config);
   PIDInit(&Motor2SpeedPID, &speed_config);
   PIDInit(&Motor3SpeedPID, &speed_config);
   PIDInit(&Motor4SpeedPID, &speed_config);
   DMMotorEnable(DM_PITCH_TX_ID,MIT_MODE);//电机使能
+  DMMotorEnable(DM_Chassis1_TX_ID,MIT_MODE);//底盘电机使能
+  DMMotorEnable(DM_Chassis2_TX_ID,MIT_MODE);
 	HAL_Delay(100);
   DM_Pitch_ReturnZero();//电机回0
 //	DMMotorZeroSet(DM_PITCH_TX_ID, MIT_MODE);
@@ -164,7 +161,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
+		// track_dynamic_Speed(1000);
+//    DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,3.0f);
+//    HAL_Delay(10);
+    // position_control(400, point_packet.centerpoint_x);
+		// HAL_Delay(10);
   }
   /* USER CODE END 3 */
 }

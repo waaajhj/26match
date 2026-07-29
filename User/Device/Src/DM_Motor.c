@@ -13,9 +13,11 @@
  ==============================================================================
  *************************(C) COPYRIGHT 2025 DragonBot*************************
 */
+//电机逆时针转，角度增大，顺时针转角度减小
 #include "DM_Motor.h"
 #include "bsp_can.h"
 #include "user_lib.h"
+#include "string.h"
 
 /* Converts a float to an unsigned int, given range and number of bits */
 static int float_to_uint(float x_float, float x_min, float x_max, int bits)
@@ -196,6 +198,64 @@ void DM_MitControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Pos, float
             DMMotorDisable(MotorID, MIT_MODE);
     }
 }
+
+/**
+ * @brief 发送达妙电机速度模式控制帧。
+ * @param MotorID 电机控制器 ID，速度模式下实际 CAN ID 为 0x200 + MotorID。
+ * @param Vel 目标速度，单位 rad/s；正值对应角度增大的逆时针方向。
+ * @note 速度按照 IEEE754 单精度浮点数发送，D[0] 为最低字节、D[3] 为最高字节，
+ *       CAN 数据长度为 4 字节。调用前应完成 CAN 初始化并使能对应电机的速度模式。
+ */
+void SpeedControl(DM_Motor_TX_ID_e MotorID, float Vel)
+{
+    uint8_t TxData[4];
+    uint32_t velocity_raw = 0U;
+    float limited_velocity = DM_speed_limit(Vel);
+    uint16_t ID = (uint16_t)MotorID + (uint16_t)SPEED_MODE;
+
+    /*
+     * STM32F4/ARMCLANG 使用 32 位 IEEE754 float。先复制其原始位模式，再按协议要求
+     * 低字节在前拆包，避免直接使用指针强制类型转换产生未对齐访问。
+     */
+    memcpy(&velocity_raw, &limited_velocity, sizeof(velocity_raw));
+    TxData[0] = (uint8_t)(velocity_raw);
+    TxData[1] = (uint8_t)(velocity_raw >> 8);
+    TxData[2] = (uint8_t)(velocity_raw >> 16);
+    TxData[3] = (uint8_t)(velocity_raw >> 24);
+
+    CANTransmitWithDLC(DM_Motor_Type, ID, TxData, 4U);
+}
+
+/**
+ * @brief 按反馈状态控制达妙电机进入速度模式并发送目标速度。
+ * @param MotorID 电机控制器 ID。
+ * @param State 期望状态，MOTOR_ENABLE 为运行，MOTOR_DISABLE 为失能。
+ * @param Vel 目标速度，单位 rad/s，函数内部限制到 [V_MIN, V_MAX]。
+ * @note 建议以固定周期重复调用。若检测到电机错误，本次调用只发送清错命令；
+ *       电机未处于期望状态时，本次调用只切换使能状态，后续调用才会发送速度。
+ */
+void DM_SpeedControl(DM_Motor_TX_ID_e MotorID, MotorMode_e State, float Vel)
+{
+    uint8_t motor_state = GetMotorState(MotorID);
+
+    if (motor_state >= 2U)
+    {
+        DMMotorClearErrors(MotorID, SPEED_MODE);
+    }
+    else if (motor_state == (uint8_t)State)
+    {
+        SpeedControl(MotorID, Vel);
+    }
+    else if (State == MOTOR_ENABLE)
+    {
+        DMMotorEnable(MotorID, SPEED_MODE);
+    }
+    else
+    {
+        DMMotorDisable(MotorID, SPEED_MODE);
+    }
+}
+
 float DM_pos_limit(float pos)//电机限位函数
 {
     if (pos < DM_POS_LIMIT_MIN)
@@ -204,4 +264,22 @@ float DM_pos_limit(float pos)//电机限位函数
         return DM_POS_LIMIT_MAX;
     else
         return pos;
+}
+
+/**
+ * @brief 限制速度模式的目标速度。
+ * @param vel 目标速度，单位 rad/s。
+ * @return 限制在 [V_MIN, V_MAX] 内的速度；NaN 输入返回 0。
+ */
+float DM_speed_limit(float vel)
+{
+    // NaN 是唯一一个与自身比较不相等的浮点值，遇到非法输入时安全停转。
+    if (vel != vel)
+        return 0.0f;
+    else if (vel < V_MIN)
+        return V_MIN;
+    else if (vel > V_MAX)
+        return V_MAX;
+    else
+        return vel;
 }

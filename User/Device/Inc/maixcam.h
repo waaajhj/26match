@@ -99,7 +99,11 @@ extern volatile uint32_t uart4_last_error_code;
 extern int center_points[2];
 extern uint8_t x_arrived;
 
-#define U3_DATASIZE  4
+/*
+ * USART6 灰度模块返回帧：
+ * 0x77 0x88 + D1~D12 共 12 字节 + CRC16 两字节，总长度 16 字节。
+ */
+#define U3_DATASIZE  16
 extern uint8_t U3_rx_data[U3_DATASIZE];
 
 #define U2_DATASIZE  5

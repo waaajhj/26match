@@ -33,6 +33,28 @@ PID_Position_Struct PID_YAW;
 PID_Position_Struct PID_sensor1;
 PID_Position_Struct PID_sensor2;
 PID_Position_Struct PID_sensor3;
+PID_Position_Struct PID_DM_Pitch_Position;
+
+/**
+ * @brief 初始化一个经典位置式 PID 实例。
+ * @param pid 待初始化的 PID 实例，不能为 NULL。
+ * @param kp 比例系数。
+ * @param ki 积分系数。
+ * @param kd 微分系数。PID_Position() 使用相邻两次误差之差，未除以周期。
+ * @note 本函数会清除历史积分和上次误差，可用于控制开始前复位 PID。
+ */
+static void PID_PositionParamInit(PID_Position_Struct *pid,
+                                  float kp,
+                                  float ki,
+                                  float kd)
+{
+    pid->Kp = kp;
+    pid->Ki = ki;
+    pid->Kd = kd;
+    pid->Integral = 0.0f;
+    pid->Error_Last1 = 0.0f;
+}
+
 /* ----------------------------下面是pid优化环节的实现---------------------------- */
 // 梯形积分
 static void f_Trapezoid_Intergral(PIDInstance *pid)
@@ -152,27 +174,25 @@ void PIDInit(PIDInstance *pid, PID_Init_Config_s *config)
     // 利用其内存连续的结构体的特性, 将剩余内存设置为0
     memcpy(pid, config, sizeof(PID_Init_Config_s));
 }
-void PID_Init(void){
-    PID_straight.Kp = 60.0f;   
-    PID_straight.Ki = 0.0f;
-    PID_straight.Kd = 20.0f;
-    PID_straight.Integral=0;
-    PID_straight.Error_Last1=0;
-    PID_YAW.Kp = 100.0f;
-    PID_YAW.Ki = 0.0f;
-    PID_YAW.Kd = 0.0f;
-    PID_YAW.Integral=0;
-    PID_YAW.Error_Last1=0;
-    PID_sensor1.Kp = 40.0f;
-    PID_sensor1.Ki = 0.0f;
-    PID_sensor1.Kd = 10.0f;
-    PID_sensor2.Kp = 60.0f;
-    PID_sensor2.Ki = 0.0f;
-    PID_sensor2.Kd = 10.0f;
-	PID_sensor3.Kp = 30.0f;
-    PID_sensor3.Ki = 0.0f;
-    PID_sensor3.Kd = 0.0f;
+/**
+ * @brief 初始化工程中使用的经典位置式 PID。
+ * @note 应在进入各控制任务前调用；重复调用会清除所有经典位置 PID 的历史状态。
+ */
+void PID_Init(void)
+{
+    // 底盘航向及循迹 PID：保留工程原有参数，同时清除历史积分和误差。
+    PID_PositionParamInit(&PID_straight, 60.0f, 0.0f, 20.0f);
+    PID_PositionParamInit(&PID_YAW, 100.0f, 0.0f, 0.0f);
+    PID_PositionParamInit(&PID_sensor1, 40.0f, 0.0f, 10.0f);
+    PID_PositionParamInit(&PID_sensor2, 60.0f, 0.0f, 10.0f);
+    PID_PositionParamInit(&PID_sensor3, 30.0f, 0.0f, 0.0f);
 
+    /*
+     * Pitch 外部位置环初值：
+     * 先使用较小的纯 P 参数，避免首次调试时积分累积或微分突变。
+     * 确认 PID 输出最终对应力矩或速度后，再根据实际响应逐步整定。
+     */
+    PID_PositionParamInit(&PID_DM_Pitch_Position, 0.000145f, 0.0f, 0.0f);
 }
 /**
  * @brief PID计算, 并反回PID输出

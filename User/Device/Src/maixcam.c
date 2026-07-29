@@ -159,21 +159,23 @@ void ProcessPacket(void) {
 void usart6_receive(uint8_t data[])
 {
 	uint8_t i;
-	
-    if(data[0]==0x75 && data[3]==0x03) {
-		for (i = 0; i < 8; i++) {
-			
-		
-			line[i] = (data[1] >> i) & 1;
-		}
-		for (i = 0; i < 4; i++) {
-			
-			
-			line[i+8] = (data[2] >> i) & 1;
-		}
-		
-	}
-	  for (i = 0; i < 4; i++) {data[i]=0;}
+
+    /*
+     * 新灰度模块返回 16 字节：
+     * [0..1] 为帧头 0x77、0x88，[2..13] 依次为 D1~D12，
+     * [14..15] 为 CRC16。为尽量少改原代码，本次按说明书允许的方式忽略 CRC。
+     */
+    if (data[0] == 0x77 && data[1] == 0x88) {
+        for (i = 0; i < 12; i++) {
+            // 保持原 line[12] 接口：line[0] 对应 D1，line[11] 对应 D12。
+            line[i] = (data[i + 2] != 0U) ? 1U : 0U;
+        }
+    }
+
+    // // 清空本帧缓冲，下一次仍由 USART6 中断接收完整的 16 字节数据帧。
+    // for (i = 0; i < U3_DATASIZE; i++) {
+    //     data[i] = 0U;
+    // }
 }
 // UART接收完成回调函数
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
@@ -264,7 +266,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     
     
 	if(huart->Instance == USART6){//如果是灰度数据
-		HAL_UART_Receive_IT(&huart6, (uint8_t *)U3_rx_data, U3_DATASIZE);
+	HAL_UART_Receive_IT(&huart6, (uint8_t *)U3_rx_data, U3_DATASIZE);
     usart6_receive(U3_rx_data);
 	}
 }
@@ -319,7 +321,8 @@ void usart2_receive(uint8_t data[])
 	for (i = 0; i < U2_DATASIZE; ++i) {data[i]=0;}
 		
 }
-uint8_t sign[]="\x57\x01";
+// 新灰度模块查询命令是单字节 0x61；字符串结尾的 0 仅供 strlen() 计算长度。
+uint8_t sign[] = "\x61";
 uint8_t color_flag=1;
 //定时器中断读取灰度,间隔10ms
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
