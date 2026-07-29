@@ -109,7 +109,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
-  MX_TIM1_Init();
   MX_UART4_Init();
   MX_UART5_Init();
   MX_USART6_UART_Init();
@@ -130,7 +129,7 @@ int main(void)
 	Arm_Init();
 //	JY61P_BAUD();
 	JY61P_START();
-	WT101_START();
+	// USART2已改为接收串口屏任务帧，不再发送WT101初始化命令。
   PID_Init_Config_s speed_config = {
       .MaxOut = 8000.0f,
       .IntegralLimit = 5000.0f,

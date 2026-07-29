@@ -205,22 +205,10 @@ float angle_restrict(float angle){
 //=====================================================================================
 void track_dynamic_Speed(float speed){
     bais = bais_judgment();
-    W_out = PID_Position(&PID_sensor1,bais,0,3000);
-//    //脱线次数过多停车
-//	if(out_flag_new >= 100){
-//		out_flag_new = 0;
-//		motor_stop();
-//		return;
-//	}
-//   if (scan()==1) {
-//		out_flag_new++;
-//       calculate_motor_speeds(speed,0);
-//       return;
-//   }
-//	else{
-//		out_flag_new = 0;
-//	}
-//    calculate_motor_speeds(speed,W_out);
+    W_out = PID_Position(&PID_sensor1,bais,0,5);
+   DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,speed+W_out);
+   DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,speed-W_out);
+
 }
 void track_dynamic_Speed_2Line(float speed){
     bais = bais_judgment_2Line();
@@ -329,8 +317,9 @@ void S_regulate_Ctl(float start_speed, float target_speed,uint32_t total_time){
 
 		// 计算当前速度
 		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
-
-		calculate_motor_speeds(current_speed,0);
+		DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,current_speed);
+        DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,current_speed);
+		delay_ms(1);
 	}
 	
 }

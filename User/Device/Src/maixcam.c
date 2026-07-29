@@ -34,7 +34,7 @@ int center_points[2] = {0};
 int point_2[2][2] = {0};
 uint32_t interrupt_count = 0;
 uint8_t RxData;
-uint8_t RxData_101;
+static uint8_t usart2_rx_byte;
 uint8_t line[12];	
 uint8_t U3_rx_data[U3_DATASIZE];
 uint8_t U2_rx_data[U2_DATASIZE];
@@ -72,8 +72,8 @@ static inline int ring_buffer_get(RingBuffer *rb, uint8_t *data) {
 void Hal_Uart_Init(void){
     // 使用单字节接收，但通过环形缓冲区提高效率
 //    HAL_UART_Receive_IT(&huart2, &rx_ring_buffer.buffer[rx_ring_buffer.head], 1);
-	  HAL_UART_Receive_IT(&huart3, &RxData, 1);  // 接收1个字节数据
-      HAL_UART_Receive_IT(&huart2, &RxData_101, 1);  // 接收1个字节数据
+	  HAL_UART_Receive_IT(&huart3, &RxData, 1);  // USART3单字节接收JY61P数据
+      HAL_UART_Receive_IT(&huart2, &usart2_rx_byte, 1);  // USART2单字节接收串口屏任务帧
 	  HAL_UART_Receive_IT(&huart6, (uint8_t *)U3_rx_data, U3_DATASIZE);
       rx_state = WAIT_HEADER;
       uart4_point_packet_index = 0;
@@ -258,10 +258,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		HAL_UART_Receive_IT(&huart3 ,&RxData, 1);
 //		HAL_UART_Transmit_IT(&huart1,&RxData,1);
     }
-	if(huart->Instance == USART2){//如果是jy61p的数据
-		WT101_ReceiveData(RxData_101);
-		HAL_UART_Receive_IT(&huart2 ,&RxData_101, 1);
-//		HAL_UART_Transmit_IT(&huart1,&RxData,1);
+	if(huart->Instance == USART2){//串口屏固定三字节任务帧
+        uint8_t received_byte = usart2_rx_byte;
+
+        /*
+         * 先重新挂接下一次单字节接收，再解析本次数据，缩短USART2未接收窗口，
+         * 避免串口屏连续发送3字节时因回调处理导致丢字节。
+         */
+		HAL_UART_Receive_IT(&huart2, &usart2_rx_byte, 1);
+		SerialScreen_ReceiveData(received_byte);
 	}
     
     
@@ -359,8 +364,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         __HAL_UART_CLEAR_FEFLAG(huart);
         __HAL_UART_CLEAR_NEFLAG(huart);
         
-        // 重新启动接收
-        HAL_UART_Receive_IT(&huart1, &rx_ring_buffer.buffer[rx_ring_buffer.head], 1);
+        // USART2发生错误后重新启动串口屏单字节接收
+        HAL_UART_Receive_IT(&huart2, &usart2_rx_byte, 1);
     }
 }
 

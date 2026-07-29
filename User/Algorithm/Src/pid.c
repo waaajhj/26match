@@ -183,10 +183,7 @@ void PID_Init(void)
     // 底盘航向及循迹 PID：保留工程原有参数，同时清除历史积分和误差。
     PID_PositionParamInit(&PID_straight, 60.0f, 0.0f, 20.0f);
     PID_PositionParamInit(&PID_YAW, 100.0f, 0.0f, 0.0f);
-    PID_PositionParamInit(&PID_sensor1, 40.0f, 0.0f, 10.0f);
-    PID_PositionParamInit(&PID_sensor2, 60.0f, 0.0f, 10.0f);
-    PID_PositionParamInit(&PID_sensor3, 30.0f, 0.0f, 0.0f);
-
+    PID_PositionParamInit(&PID_sensor1, 0.1f, 0.0f, 0.0f);
     /*
      * Pitch 外部位置环初值：
      * 先使用较小的纯 P 参数，避免首次调试时积分累积或微分突变。

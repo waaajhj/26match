@@ -12,7 +12,8 @@
 #include "bsp_dwt.h"
 #include "maixcam.h"
 #include "usart.h"
-
+//定义小车行驶速度
+#define speed_target 8.0f
 // 球杆平衡时电机的中立位置，以达妙电机保存的零点为基准，单位 rad。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
 
@@ -82,4 +83,30 @@ void position_control(float target_position, float current_position)
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   motor_target_angle, 0.0f, 2.0f, 0.1f, 0.0f);
+}
+void task_1(void){ 
+    S_regulate_track(0, speed_target, 800);//加速到目标速度
+    while(scan_cross_nostop(line)!=0){
+        track_dynamic_Speed(speed_target);
+        delay_ms(5);
+    }
+    S_regulate_Ctl(speed_target, 0.0f, 300);//减速停车
+    serial_screen_task = SERIAL_SCREEN_TASK_NONE;//状态复位
+}
+void task_switch(void){//任务选择
+    switch (serial_screen_task){
+        case SERIAL_SCREEN_TASK_1:
+            task_1();
+            break;
+        case SERIAL_SCREEN_TASK_2:
+            break;
+        case SERIAL_SCREEN_TASK_3:   
+            break;
+        case SERIAL_SCREEN_TASK_4:
+            break;
+        case SERIAL_SCREEN_TASK_5:
+            break;
+        default:
+            break;
+    }
 }

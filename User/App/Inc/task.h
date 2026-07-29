@@ -12,5 +12,11 @@ void DM_Pitch_ReturnZero(void);
  *       函数会发送 MIT 位置控制指令，电机相对中立位置最多倾斜 ±5°。
  */
 void position_control(float target_position, float current_position);
-
+//任务函数
+void task_1(void);
+void task_2(void);
+void task_3(void);
+void task_4(void);
+void task_5(void);
+void task_switch(void);
 #endif /* TASK_H_ */
