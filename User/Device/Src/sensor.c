@@ -310,7 +310,7 @@ int scan_cross_nostop(uint8_t *gray_data)
 
     // 收集所有亮起的通道索引（假设0表示亮起）
     for (int i = 2; i < 10; i++) {
-        if (*(gray_data + i) == 0) {
+        if (*(gray_data + i) == 1) {
             light_indices[count_light++] = i;
         }
     }

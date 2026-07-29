@@ -7,6 +7,9 @@
 
 #define CHASSIS_CAN hcan1 // 底盘电机CAN
 
+// CAN发送失败累计次数，可在Keil Watch中观察是否发生邮箱拥塞。
+extern volatile uint32_t can_tx_enqueue_error_count;
+
 // M2006电机轴总编码器转换到输出轴角度(rad)的比例=1/36/8192*2*PI
 #define M2006_CONVERSION_RATIO 2.130528872063391e-5f
 // M3508电机轴总编码器转换到输出轴角度(rad)的比例=187/3591/8192*2*PI

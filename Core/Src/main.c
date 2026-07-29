@@ -31,13 +31,13 @@
 #include "bsp_can.h"
 #include "bsp_dwt.h"
 #include "DJI_Motor.h"
-#include "arm.h"
 #include "jy61p.h"
 #include "chassis.h"
 #include "sensor.h"
 #include "task.h"
 #include "maixcam.h"
 #include "route.h"
+#include "OLED.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,8 +77,8 @@ void SystemClock_Config(void);
   * @brief  The application entry point.
   * @retval int
   */
-int main(void)
-{
+int main(void){
+Hal_Uart_Init();
 
   /* USER CODE BEGIN 1 */
 
@@ -121,12 +121,15 @@ int main(void)
   MX_CAN2_Init();
   /* USER CODE BEGIN 2 */
 
+  // TIM3：100 Hz 灰度查询；TIM4：50 Hz 球杆位置控制调度。
+  Hal_Uart_Init();
 	HAL_TIM_Base_Start_IT(&htim3);
+	HAL_TIM_Base_Start_IT(&htim4);
+  OLED_Init(); // 初始化OLED，只调用一次
   PID_Init();
   Hal_Uart_Init();
   DWT_Init(168);
   CAN_Config();
-	Arm_Init();
 //	JY61P_BAUD();
 	JY61P_START();
 	// USART2已改为接收串口屏任务帧，不再发送WT101初始化命令。
@@ -144,9 +147,11 @@ int main(void)
   PIDInit(&Motor3SpeedPID, &speed_config);
   PIDInit(&Motor4SpeedPID, &speed_config);
   DMMotorEnable(DM_PITCH_TX_ID,MIT_MODE);//电机使能
-  DMMotorEnable(DM_Chassis1_TX_ID,MIT_MODE);//底盘电机使能
-  DMMotorEnable(DM_Chassis2_TX_ID,MIT_MODE);
+  DMMotorEnable(DM_Chassis1_TX_ID,SPEED_MODE);//底盘电机使能
+  DMMotorEnable(DM_Chassis2_TX_ID,SPEED_MODE);
 	HAL_Delay(100);
+//	DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,-5);
+//	DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,5);
   DM_Pitch_ReturnZero();//电机回0
 //	DMMotorZeroSet(DM_PITCH_TX_ID, MIT_MODE);
 //  DM_MitControl(DM_PITCH_TX_ID,MOTOR_ENABLE, 0, 0, 2, 0.1, 0);//电机回0
@@ -160,11 +165,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		// track_dynamic_Speed(1000);
-//    DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,3.0f);
-//    HAL_Delay(10);
-    // position_control(400, point_packet.centerpoint_x);
-		// HAL_Delay(10);
+    // 串口屏任务在主循环执行；任务3运行时，球杆控制由 TIM4 中断并行完成。
+//		track_dynamic_Speed(8);
+    task_switch();
   }
   /* USER CODE END 3 */
 }

@@ -206,7 +206,7 @@ float angle_restrict(float angle){
 void track_dynamic_Speed(float speed){
     bais = bais_judgment();
     W_out = PID_Position(&PID_sensor1,bais,0,5);
-   DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,speed+W_out);
+   DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,-(speed+W_out));
    DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,speed-W_out);
 
 }
@@ -318,7 +318,8 @@ void S_regulate_Ctl(float start_speed, float target_speed,uint32_t total_time){
 		// 计算当前速度
 		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
 		DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,current_speed);
-        DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,current_speed);
+    DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,current_speed);
+		ChassisMotionTime_Update();
 		delay_ms(1);
 	}
 	
@@ -347,6 +348,9 @@ void S_regulate_track(float start_speed, float target_speed, uint32_t total_time
 		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
 		
 		track_dynamic_Speed(current_speed);
+		ChassisMotionTime_Update();
+		// 以 5 ms 周期更新底盘，避免紧循环持续占满 CAN 发送邮箱。
+		delay_ms(5);
 		//OLED_ShowNum(0,0,current_speed,4);
 	}
 	

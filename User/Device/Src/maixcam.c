@@ -326,17 +326,7 @@ void usart2_receive(uint8_t data[])
 	for (i = 0; i < U2_DATASIZE; ++i) {data[i]=0;}
 		
 }
-// 新灰度模块查询命令是单字节 0x61；字符串结尾的 0 仅供 strlen() 计算长度。
-uint8_t sign[] = "\x61";
 uint8_t color_flag=1;
-//定时器中断读取灰度,间隔10ms
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	if(htim==&htim3){
-		usart6_send(sign);
-	}
-	
-}
 // UART错误回调函数
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {

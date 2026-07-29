@@ -1,20 +1,15 @@
 #include "arm.h"
-#include "tim.h"
 int flag_catch=0;
 void Arm_Init(void){
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); 	//����PWM
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-	Arm_up();
+	// 当前版本不再使用舵机，保留空接口以兼容旧路线代码。
 }
 void Angle1(float angle1){//大臂运动,越小越往前
-	float pluse;
-	pluse=(angle1/180)*2000+500;
-	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,pluse);
+	// 舵机已移除，不再占用 TIM1。
+	(void)angle1;
 }
 void Angle2(float angle2){//小臂运动越小越往后
-	float pluse;
-	pluse=(angle2/180)*2000+500;
-	__HAL_TIM_SET_COMPARE(&htim2,TIM_CHANNEL_1,pluse);
+	// 舵机已移除，不再占用 TIM2。
+	(void)angle2;
 }
 void Arm_up(void){
 	Angle1(95);

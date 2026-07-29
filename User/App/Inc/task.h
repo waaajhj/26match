@@ -12,6 +12,20 @@ void DM_Pitch_ReturnZero(void);
  *       函数会发送 MIT 位置控制指令，电机相对中立位置最多倾斜 ±5°。
  */
 void position_control(float target_position, float current_position);
+
+/**
+ * @brief 打开或关闭由 TIM4 驱动的球杆位置控制。
+ */
+void BallBalanceControl_Start(float target_position);
+void BallBalanceControl_Stop(void);
+
+/**
+ * @brief 底盘运行时间的启动、实时刷新和停止接口。
+ */
+void ChassisMotionTime_Start(void);
+void ChassisMotionTime_Update(void);
+void ChassisMotionTime_Stop(void);
+
 //任务函数
 void task_1(void);
 void task_2(void);
@@ -19,4 +33,16 @@ void task_3(void);
 void task_4(void);
 void task_5(void);
 void task_switch(void);
+static void ChassisTrack2_Run(void);
+static void ChassisTrack_Run(void);
+
+// 以下状态量用于 Keil Watch 调试 TIM4 球杆控制。
+extern volatile uint8_t ball_balance_control_enabled;
+extern volatile float ball_balance_target_position;
+extern volatile uint32_t ball_balance_control_count;
+extern volatile uint32_t ball_balance_no_new_frame_count;
+
+// 底盘实时计时状态，单位为毫秒。
+extern volatile uint8_t chassis_motion_timing_active;
+extern volatile uint32_t chassis_motion_elapsed_ms;
 #endif /* TASK_H_ */

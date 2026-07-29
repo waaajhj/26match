@@ -3,8 +3,8 @@
 #include "main.h"
 
 /*引脚配置*/
-#define OLED_W_SCL(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, (GPIO_PinState)(x))
-#define OLED_W_SDA(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (GPIO_PinState)(x))
+#define OLED_W_SCL(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, (GPIO_PinState)(x))
+#define OLED_W_SDA(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, (GPIO_PinState)(x))
 
 /*引脚初始化*/
 void OLED_I2C_Init(void)

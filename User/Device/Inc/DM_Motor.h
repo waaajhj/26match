@@ -40,8 +40,8 @@ typedef enum
 {
     DM_YAW_TX_ID = 0x01,
     DM_PITCH_TX_ID = 0x02,
-    DM_Chassis1_TX_ID = 0x03,
-    DM_Chassis2_TX_ID = 0x04,
+    DM_Chassis1_TX_ID = 0x03,//左边电机
+    DM_Chassis2_TX_ID = 0x04,//右边电机
 } DM_Motor_TX_ID_e;
 
 /* 达妙电机反馈帧ID(Master ID) */

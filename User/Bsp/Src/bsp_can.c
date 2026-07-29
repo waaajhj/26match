@@ -26,6 +26,9 @@ static CAN_TxHeaderTypeDef chassis_tx_message; // 底盘CAN发送结构体
 static uint8_t chassis_can_send_data[8];	   // 底盘CAN发送数据
 DM_Motor_t Gimbal_Motor[2] = {0};   // 达妙Yaw轴电机数据
 DM_Motor_t Chassis_Motor[2] = {0}; // 达妙底盘电机数据
+
+// 记录 CAN 发送邮箱占满或 HAL 发送失败的次数，便于在 Keil Watch 中排查丢帧。
+volatile uint32_t can_tx_enqueue_error_count = 0U;
 /*---------------------------------------------------------------------------------------------------*/
 /**
  * @brief 发送指定数据长度的标准 CAN 数据帧。
@@ -42,6 +45,8 @@ void CANTransmitWithDLC(MotorType_e Motor,
 {
     CAN_TxHeaderTypeDef TxHeader;
     uint32_t TxMailbox;
+    uint32_t interrupt_mask;
+    HAL_StatusTypeDef transmit_status;
 
     if (DataLength == 0U || DataLength > 8U)
     {
@@ -70,12 +75,19 @@ void CANTransmitWithDLC(MotorType_e Motor,
         return; // 无效电机类型，直接返回
     }
 
-    // 发送CAN报文
-    if (HAL_CAN_AddTxMessage(hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
+    /*
+     * 底盘指令在主循环发送，球杆指令在 TIM4 中断发送。
+     * 短暂关闭中断可防止两个上下文同时进入 HAL_CAN_AddTxMessage()
+     * 并选择到同一个发送邮箱；完成寄存器写入后立即恢复原中断状态。
+     */
+    interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    transmit_status = HAL_CAN_AddTxMessage(hcan, &TxHeader, TxData, &TxMailbox);
+    if (transmit_status != HAL_OK)
     {
-        // 发送失败，调用错误处理函数
-//        Error_Handler();
+        can_tx_enqueue_error_count++;
     }
+    __set_PRIMASK(interrupt_mask);
 }
 
 /**
