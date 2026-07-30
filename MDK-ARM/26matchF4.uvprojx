@@ -899,6 +899,16 @@
               <FilePath>..\User\App\Inc\task.h</FilePath>
             </File>
             <File>
+              <FileName>motion_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\User\App\Src\motion_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>motion_control.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\User\App\Inc\motion_control.h</FilePath>
+            </File>
+            <File>
               <FileName>route.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\User\App\Src\route.c</FilePath>

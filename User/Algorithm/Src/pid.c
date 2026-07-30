@@ -36,7 +36,7 @@ PID_Position_Struct PID_sensor3;
 PID_Position_Struct PID_DM_Pitch_Position;
 
 // 球杆位置环的积分项最多贡献±3°，单位rad。
-#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.05235988f
+#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.10235988f
 
 /**
  * @brief 初始化一个经典位置式 PID 实例。
@@ -196,11 +196,11 @@ void PID_Init(void)
     PID_PositionParamInit(&PID_sensor1, 0.1f, 0.0f, 0.0f, 0.0f);
     /*
      * Pitch位置式外环参数：
-     * 位置误差直接计算目标倾角，积分项用于消除静差，
-     * 微分项根据相邻视觉帧的误差变化提供速度阻尼。
+     * 位置误差直接计算目标倾角，积分项用于消除静差。
+     * 原始误差差分关闭，滤波后的视觉速度反馈在task.c中单独叠加。
      */
     PID_PositionParamInit(&PID_DM_Pitch_Position,
-                          0.0003f,  0.0000005, 0.02f,
+                          0.0003f, 0.0000007f, 0.0f,
                           DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD);
 }
 /**

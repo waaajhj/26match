@@ -35,6 +35,7 @@
 #include "chassis.h"
 #include "sensor.h"
 #include "task.h"
+#include "motion_control.h"
 #include "maixcam.h"
 #include "route.h"
 #include "OLED.h"

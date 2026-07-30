@@ -8,6 +8,7 @@
 #include "task.h"
 #include "tim.h" // 包含定时器相关头文件
 #include "bsp_dwt.h"
+#include "motion_control.h"
 #include "math.h"
 uint32_t time;
 uint16_t out_flag_new=0;
