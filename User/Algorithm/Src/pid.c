@@ -35,23 +35,33 @@ PID_Position_Struct PID_sensor2;
 PID_Position_Struct PID_sensor3;
 PID_Position_Struct PID_DM_Pitch_Position;
 
+// 球杆位置环的积分项最多贡献±1.5°，单位rad。
+#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.02617994f
+
 /**
  * @brief 初始化一个经典位置式 PID 实例。
  * @param pid 待初始化的 PID 实例，不能为 NULL。
  * @param kp 比例系数。
  * @param ki 积分系数。
  * @param kd 微分系数。PID_Position() 使用相邻两次误差之差，未除以周期。
+ * @param integral_output_limit 积分项输出绝对限幅，单位与PID输出一致；0表示禁用积分。
  * @note 本函数会清除历史积分和上次误差，可用于控制开始前复位 PID。
  */
 static void PID_PositionParamInit(PID_Position_Struct *pid,
                                   float kp,
                                   float ki,
-                                  float kd)
+                                  float kd,
+                                  float integral_output_limit)
 {
     pid->Kp = kp;
     pid->Ki = ki;
     pid->Kd = kd;
+    pid->Error = 0.0f;
     pid->Integral = 0.0f;
+    pid->IntegralOutput = 0.0f;
+    pid->IntegralOutputLimit = integral_output_limit;
+    pid->Differential = 0.0f;
+    pid->Output = 0.0f;
     pid->Error_Last1 = 0.0f;
 }
 
@@ -181,15 +191,17 @@ void PIDInit(PIDInstance *pid, PID_Init_Config_s *config)
 void PID_Init(void)
 {
     // 底盘航向及循迹 PID：保留工程原有参数，同时清除历史积分和误差。
-    PID_PositionParamInit(&PID_straight, 60.0f, 0.0f, 20.0f);
-    PID_PositionParamInit(&PID_YAW, 100.0f, 0.0f, 0.0f);
-    PID_PositionParamInit(&PID_sensor1, 0.1f, 0.0f, 0.0f);
+    PID_PositionParamInit(&PID_straight, 60.0f, 0.0f, 20.0f, 0.0f);
+    PID_PositionParamInit(&PID_YAW, 100.0f, 0.0f, 0.0f, 0.0f);
+    PID_PositionParamInit(&PID_sensor1, 0.1f, 0.0f, 0.0f, 0.0f);
     /*
-     * Pitch 外部位置环初值：
-     * 先使用较小的纯 P 参数，避免首次调试时积分累积或微分突变。
-     * 确认 PID 输出最终对应力矩或速度后，再根据实际响应逐步整定。
+     * Pitch位置式外环参数：
+     * 位置误差直接计算目标倾角，积分项用于消除静差，
+     * 微分项根据相邻视觉帧的误差变化提供速度阻尼。
      */
-    PID_PositionParamInit(&PID_DM_Pitch_Position, 0.000145f, 0.0f, 0.0f);
+    PID_PositionParamInit(&PID_DM_Pitch_Position,
+                          0.002f,  0.000002, 0.035f,
+                          DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD);
 }
 /**
  * @brief PID计算, 并反回PID输出
@@ -281,41 +293,84 @@ float calculate_angle_error(float current, float target) {
 	// }
     return error;
 }
+
+/**
+ * @brief 更新位置式PID积分状态并限制积分项输出。
+ * @param PID 待更新的PID实例，必须为有效指针。
+ * @retval 无。
+ * @note Ki为0或积分输出限幅不大于0时清空积分，避免Ki为0期间先累计误差，
+ *       后续在线增大Ki时产生积分输出突跳。
+ */
+static void PID_PositionIntegralUpdate(PID_Position_Struct *PID)
+{
+  if ((PID->Ki == 0.0f) || (PID->IntegralOutputLimit <= 0.0f))
+  {
+    PID->Integral = 0.0f;
+    PID->IntegralOutput = 0.0f;
+    return;
+  }
+
+  PID->Integral += PID->Error;
+  PID->IntegralOutput = PID->Ki * PID->Integral;
+
+  if (PID->IntegralOutput > PID->IntegralOutputLimit)
+  {
+    PID->IntegralOutput = PID->IntegralOutputLimit;
+    PID->Integral = PID->IntegralOutput / PID->Ki;
+  }
+  else if (PID->IntegralOutput < -PID->IntegralOutputLimit)
+  {
+    PID->IntegralOutput = -PID->IntegralOutputLimit;
+    PID->Integral = PID->IntegralOutput / PID->Ki;
+  }
+}
+
 float PID_Position(PID_Position_Struct *PID, float Current, float Target,float limit)
 {
-  float err,                                                                                                        //���
-      out,                                                                                                          //���
-      differential;                                                                                                 //΢��
-  err = (float)Target - (float)Current;                                                                             //�������
-  PID->Integral += err;                                                                                             //���»���
-  differential = (float)err - (float)PID->Error_Last1;                                                              //����΢��
-  out = (float)PID->Kp * (float)err + (float)PID->Ki * (float)PID->Integral + (float)PID->Kd * (float)differential; //����PID
-  PID->Error_Last1 = err;       //�������
-   if(out>=limit){
-	  out=limit;
+  PID->Error = Target - Current;
+  PID_PositionIntegralUpdate(PID);
+  PID->Differential = PID->Error - PID->Error_Last1;
+
+  PID->Output =
+      PID->Kp * PID->Error +
+      PID->IntegralOutput +
+      PID->Kd * PID->Differential;
+
+  PID->Error_Last1 = PID->Error;
+  if (PID->Output >= limit)
+  {
+    PID->Output = limit;
   }
-   if(out<=-limit){
-	  out=-limit;
+  if (PID->Output <= -limit)
+  {
+    PID->Output = -limit;
   }
-  return out;
+
+  return PID->Output;
 }
+
 float PID_Angle_Position(PID_Position_Struct *PID, float Current, float Target,float limit)
 {
-  float err,                                                                                                        //���
-      out,                                                                                                          //���
-      differential;                                                                                                 //΢��
-  err = calculate_angle_error(Current, Target);                                                                             //�������
-  PID->Integral += err;                                                                                             //���»���
-  differential = (float)err - (float)PID->Error_Last1;                                                              //����΢��
-  out = (float)PID->Kp * (float)err + (float)PID->Ki * (float)PID->Integral + (float)PID->Kd * (float)differential; //����PID
-  PID->Error_Last1 = err;      
-   if(out>=limit){
-	  out=limit;
+  PID->Error = calculate_angle_error(Current, Target);
+  PID_PositionIntegralUpdate(PID);
+  PID->Differential = PID->Error - PID->Error_Last1;
+
+  PID->Output =
+      PID->Kp * PID->Error +
+      PID->IntegralOutput +
+      PID->Kd * PID->Differential;
+
+  PID->Error_Last1 = PID->Error;
+  if (PID->Output >= limit)
+  {
+    PID->Output = limit;
   }
-   if(out<=-limit){
-	  out=-limit;
+  if (PID->Output <= -limit)
+  {
+    PID->Output = -limit;
   }
-  return out;
+
+  return PID->Output;
 }
 
 /**

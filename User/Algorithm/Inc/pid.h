@@ -105,11 +105,16 @@ typedef struct // config parameter
  */
 typedef struct __PID_Position_Struct
 {
-  float Kp;          // 比例系数
-  float Ki;          // 积分系数
-  float Kd;          // 微分系数
-  float Integral;    // 误差累加值，PID_Init() 时清零
-  float Error_Last1; // 上一次误差，用于计算离散微分项
+  float Kp;           // 比例系数
+  float Ki;           // 积分系数
+  float Kd;           // 微分系数
+  float Error;        // 当前误差，等于Target-Current
+  float Integral;     // 当前误差累加值，未乘Ki
+  float IntegralOutput;      // 当前积分项输出，等于Ki*Integral
+  float IntegralOutputLimit; // 积分项输出绝对限幅，单位与最终输出一致
+  float Differential; // 当前误差变化量，等于Error-Error_Last1，未乘Kd
+  float Output;       // 经过输出限幅后的最终PID输出
+  float Error_Last1;  // 上一次误差，用于计算离散微分项
 } PID_Position_Struct;
 typedef struct
 {

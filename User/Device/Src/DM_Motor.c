@@ -39,11 +39,15 @@ static float uint_to_float(int x_int, float x_min, float x_max, int bits)
  * @brief 解析DM8009电机反馈值
  * @param Motor 指向Joint_Motor_t结构体的指针，包含电机相关信息和反馈数据
  * @param RxData 指向包含反馈数据的数组指针
+ * @note 本函数由CAN接收中断调用，同时更新角速度与角加速度，不包含阻塞操作
  **/
 void DMMotorDecode(DM_Motor_t *Motor, uint8_t *RxData)
 {
     /*---------------------------------解析原始值---------------------------------*/
     int p_int, v_int, t_int;
+    uint32_t current_time_ms;
+    uint32_t delta_time_ms;
+
     Motor->measure.ID = (RxData[0]) & 0xF;
     Motor->measure.State = (RxData[0]) >> 4;
     p_int = (RxData[1] << 8) | RxData[2];
@@ -56,6 +60,30 @@ void DMMotorDecode(DM_Motor_t *Motor, uint8_t *RxData)
     Motor->measure.T_Coil = RxData[7];
     Motor->Omega = DM_OMEGA_LPF_RC * Motor->LastOmega + (1.0f - DM_OMEGA_LPF_RC) * Motor->measure.Velocity;
     Motor->LastOmega = Motor->Omega;
+
+    /*
+     * 使用滤波后的反馈角速度计算实际角加速度：
+     * a = (当前角速度 - 上次角速度) / 实际反馈间隔。
+     * HAL_GetTick()在CAN接收中断中可直接读取；同一毫秒内收到多帧时保留上次结果，
+     * 避免除数为0。首次收到反馈时只建立基准，加速度置0。
+     */
+    current_time_ms = HAL_GetTick();
+    delta_time_ms = current_time_ms - Motor->LastFeedbackTime;
+    if ((Motor->LastFeedbackTime != 0U) && (delta_time_ms > 0U))
+    {
+        Motor->Acceleration =
+            (Motor->Omega - Motor->LastAccelerationOmega) *
+            (1000.0f / (float)delta_time_ms);
+        Motor->LastAccelerationOmega = Motor->Omega;
+        Motor->LastFeedbackTime = current_time_ms;
+    }
+    else if (Motor->LastFeedbackTime == 0U)
+    {
+        Motor->Acceleration = 0.0f;
+        Motor->LastAccelerationOmega = Motor->Omega;
+        Motor->LastFeedbackTime = current_time_ms;
+    }
+
     /*-------------------------------解析输出轴角度-------------------------------*/
     Motor->Position = rad_format(Motor->measure.PosTemp);
 }

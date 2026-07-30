@@ -13,15 +13,19 @@
 #include "maixcam.h"
 #include "usart.h"
 #include "tim.h"
+#include "OLED.h"
 //定义小车行驶速度
 #define speed_target 10.0f
 // 视觉坐标中的摆杆中心点，后续完成像素/厘米标定后可按实测值修改。
-#define BALL_BALANCE_DEFAULT_TARGET_POSITION 400.0f
+#define BALL_BALANCE_DEFAULT_TARGET_POSITION 287.5f
+//视觉起点像素点120，终点450
+#define BALL_BALANCE_VISUAL_START_PIXEL 122.0f
+#define BALL_BALANCE_VISUAL_END_PIXEL 453.0f
 // 球杆平衡时电机的中立位置，以达妙电机保存的零点为基准，单位 rad。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
 
-// PID 最多允许球杆相对中立位置倾斜 5°，防止视觉误差异常时目标角度过大。
-#define BALL_BALANCE_MAX_TILT_ANGLE_RAD 0.08726646f
+// PID最多允许球杆相对中立位置倾斜20°，单位rad。
+#define BALL_BALANCE_MAX_TILT_ANGLE_RAD 0.44906585f
 
 // OLED显示底盘运行时间的刷新周期；100 ms可兼顾实时性与软件I2C开销。
 #define CHASSIS_TIME_OLED_REFRESH_MS 100U
@@ -119,7 +123,11 @@ void BallBalanceControl_Start(float target_position)
 {
     ball_balance_target_position = target_position;
     ball_balance_last_packet_count = point_packet_rx_count;
+    PID_DM_Pitch_Position.Error = 0.0f;
     PID_DM_Pitch_Position.Integral = 0.0f;
+    PID_DM_Pitch_Position.IntegralOutput = 0.0f;
+    PID_DM_Pitch_Position.Differential = 0.0f;
+    PID_DM_Pitch_Position.Output = 0.0f;
     PID_DM_Pitch_Position.Error_Last1 = 0.0f;
     ball_balance_control_enabled = 1U;
 }
@@ -130,7 +138,11 @@ void BallBalanceControl_Start(float target_position)
 void BallBalanceControl_Stop(void)
 {
     ball_balance_control_enabled = 0U;
+    PID_DM_Pitch_Position.Error = 0.0f;
     PID_DM_Pitch_Position.Integral = 0.0f;
+    PID_DM_Pitch_Position.IntegralOutput = 0.0f;
+    PID_DM_Pitch_Position.Differential = 0.0f;
+    PID_DM_Pitch_Position.Output = 0.0f;
     PID_DM_Pitch_Position.Error_Last1 = 0.0f;
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD,
@@ -173,33 +185,28 @@ void DM_Pitch_ReturnZero(void)
     }
 }
 /**
- * @brief 根据球的位置误差控制达妙 Pitch 电机的目标角度。
+ * @brief 根据球的位置误差计算达妙Pitch电机的目标角度。
  * @param target_position 球的目标位置，单位与视觉位置数据一致。
  * @param current_position 球的当前位置，单位与视觉位置数据一致。
  * @note 调用前必须完成 PID_Init()、CAN 初始化、电机使能和回零。
- *       建议以固定周期调用；本函数每次调用会发送一帧 MIT 位置控制指令。
+ *       建议以固定周期调用；本函数每次调用会发送一帧MIT位置控制指令。
  */
 void position_control(float target_position, float current_position)
 {
-    /*
-     * PID 输出表示球杆相对中立位置的目标倾角，并限制在 ±5°。
-     * 保留原控制方向的负号：current_position 大于 target_position 时，
-     * PID 内部误差为负，取反后电机目标角度增大，即逆时针转动。
-     */
-    float angle_offset = -PID_Position(&PID_DM_Pitch_Position,
-                                       current_position,
-                                       target_position,
-                                       BALL_BALANCE_MAX_TILT_ANGLE_RAD);
+    float angle_offset = PID_Position(&PID_DM_Pitch_Position,
+                                      current_position,
+                                      target_position,
+                                      BALL_BALANCE_MAX_TILT_ANGLE_RAD);
 
     /*
      * 最终目标角度先叠加平衡零点，再经过达妙绝对电控限位，
-     * 因此同时受到相对倾角 ±5° 和绝对角度 [-0.7, 1.04] rad 的保护。
+     * 因此同时受到相对倾角±20°和绝对角度[-1.1, 0.65] rad的保护。
      */
     float motor_target_angle =
         DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD + angle_offset);
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
-                  motor_target_angle, 0.0f, 2.0f, 0.1f, 0.0f);
+                  motor_target_angle, 0.0f, 5.0f, 0.1f, 0.0f);
 }
 
 /**
@@ -209,7 +216,7 @@ void position_control(float target_position, float current_position)
 static void ChassisTrack_Run(void)
 {
     ChassisMotionTime_Start();
-    // S_regulate_track(0, speed_target, 800); // 加速到目标速度
+    S_regulate_track(0, speed_target, 800); // 加速到目标速度
     while (scan_cross_nostop(line) != 0)
     {
         track_dynamic_Speed(speed_target);
@@ -217,7 +224,7 @@ static void ChassisTrack_Run(void)
         delay_ms(3);
     }
     // S_regulate_Ctl(speed_target, 0.0f, 100); // 减速停车
-	  DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,0);
+	DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,0);
     DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,0);
     ChassisMotionTime_Stop();
 }
@@ -320,7 +327,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         if ((current_packet_count == 0U) ||
             (current_packet_count == ball_balance_last_packet_count))
         {
-            // 没有新视觉数据时保持上一条电机指令，不重复计算 PID。
+            // 没有新视觉数据时保持上一条电机指令，不重复计算位置式PID。
             ball_balance_no_new_frame_count++;
             return;
         }

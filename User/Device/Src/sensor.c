@@ -299,7 +299,7 @@ int scan_cross(uint8_t *gray_data, int start_speed, int delay_stop){
 }
 int scan_cross_nostop(uint8_t *gray_data) 
 {
-    if (scan_cross_flag >= 1) { // 滤波次数
+    if (scan_cross_flag >= 2) { // 滤波次数
         scan_cross_flag = 0;
 		
         return 0;

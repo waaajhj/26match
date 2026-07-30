@@ -79,6 +79,8 @@ typedef struct
 	float shaft_angle;	   // 输出轴角度(rad)
 } motor_measure_t;
 extern motor_measure_t chassis_motor[4];
+// 两台达妙底盘电机的CAN反馈；Acceleration为输出轴角加速度(rad/s^2)。
+extern DM_Motor_t Chassis_Motor[2];
 void CAN_Config(void);
 void CANTransmit(MotorType_e Motor, uint16_t ID, uint8_t *TxData);
 void CANTransmitWithDLC(MotorType_e Motor,

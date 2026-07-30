@@ -4,8 +4,8 @@
 #include "stdint.h"
 
 //电机电控限位参数
-#define DM_POS_LIMIT_MIN -0.7f
-#define DM_POS_LIMIT_MAX 1.04f
+#define DM_POS_LIMIT_MIN -1.1f
+#define DM_POS_LIMIT_MAX 0.65f
 // 电机转速滤波系数
 #define DM_OMEGA_LPF_RC 0.15f
 
@@ -68,10 +68,13 @@ typedef struct
     } measure;
     float LastPosTemp; // 上次电机位置(P_MIN,P_MAX)
     float LastOmega;   // 电机输出轴上次角速度(rad/s)
+    float LastAccelerationOmega;    // 上次参与加速度计算的角速度(rad/s)
+    uint32_t LastFeedbackTime;       // 上次加速度采样时刻(ms)，来自HAL系统时基
     /* 解析后的反馈值 */
-    float Position; // 输出轴角度(-PI,PI)(rad)
-    float Omega;    // 电机输出轴角速度(rad/s)
-    float Torque;   // 反馈扭矩
+    float Position;              // 输出轴角度(-PI,PI)(rad)
+    float Omega;                 // 电机输出轴角速度(rad/s)
+    volatile float Acceleration; // 电机输出轴角加速度(rad/s^2)，在CAN接收中断中更新
+    float Torque;                // 反馈扭矩
 } DM_Motor_t;
 
 void DMMotorDecode(DM_Motor_t *Motor, uint8_t *RxData);

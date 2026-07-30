@@ -77,8 +77,8 @@ void SystemClock_Config(void);
   * @brief  The application entry point.
   * @retval int
   */
-int main(void){
-Hal_Uart_Init();
+int main(void)
+{
 
   /* USER CODE BEGIN 1 */
 
@@ -153,6 +153,7 @@ Hal_Uart_Init();
 //	DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,-5);
 //	DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,5);
   DM_Pitch_ReturnZero();//电机回0
+
 //	DMMotorZeroSet(DM_PITCH_TX_ID, MIT_MODE);
 //  DM_MitControl(DM_PITCH_TX_ID,MOTOR_ENABLE, 0, 0, 2, 0.1, 0);//电机回0
   /* USER CODE END 2 */
@@ -168,6 +169,9 @@ Hal_Uart_Init();
     // 串口屏任务在主循环执行；任务3运行时，球杆控制由 TIM4 中断并行完成。
 //		track_dynamic_Speed(8);
     task_switch();
+		//    DMMotorDisable(DM_PITCH_TX_ID,MIT_MODE);//失能读取电机角度
+//		HAL_Delay(10);
+//		OLED_ShowNum(1,1,1,1);//olde测试
   }
   /* USER CODE END 3 */
 }
