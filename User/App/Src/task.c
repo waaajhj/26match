@@ -14,6 +14,7 @@
 #include "usart.h"
 #include "tim.h"
 #include "OLED.h"
+#include <math.h>
 //定义小车行驶速度
 #define speed_target 10.0f
 // 视觉坐标中的摆杆中心点，后续完成像素/厘米标定后可按实测值修改。
@@ -24,8 +25,24 @@
 // 球杆平衡时电机的中立位置，以达妙电机保存的零点为基准，单位 rad。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
 
-// PID最多允许球杆相对中立位置倾斜20°，单位rad。
-#define BALL_BALANCE_MAX_TILT_ANGLE_RAD 0.44906585f
+// PID最多请求球杆相对水平位置倾斜6°，单位rad。
+#define BALL_BALANCE_MAX_TILT_ANGLE_RAD 0.10471976f
+
+/*
+ * 四连杆杆长，单位mm：D、C为固定铰点，AD为电机主动杆，
+ * AB为中间连杆，BC为绕C点转动的球杆。
+ */
+#define FOUR_BAR_AD_LENGTH_MM 40.0f
+#define FOUR_BAR_AB_LENGTH_MM 90.0f
+#define FOUR_BAR_BC_LENGTH_MM 180.0f
+#define FOUR_BAR_CD_LENGTH_MM 200.0f
+
+/*
+ * 由上述杆长和“AD、BC同时水平”的零位支路计算得到的球杆几何极限。
+ * 反解前先限幅，避免目标角超出四杆闭环可达范围后acosf()无解。
+ */
+#define BALL_ROD_GEOMETRY_MIN_ANGLE_RAD -0.28702193f
+#define BALL_ROD_GEOMETRY_MAX_ANGLE_RAD 0.16151227f
 
 // OLED显示底盘运行时间的刷新周期；100 ms可兼顾实时性与软件I2C开销。
 #define CHASSIS_TIME_OLED_REFRESH_MS 100U
@@ -184,6 +201,74 @@ void DM_Pitch_ReturnZero(void)
         }
     }
 }
+
+/**
+ * @brief 将BC球杆相对水平位置的目标角度反解为AD电机相对零点的目标角度。
+ * @param ball_rod_angle BC球杆目标角度，单位rad；逆时针为正。
+ * @retval AD电机相对图示水平零点的目标角度，单位rad；逆时针为正。
+ * @note 使用AD=40、AB=90、BC=180、CD=200 mm的四杆闭环几何。
+ *       图示AD与BC同时水平时输入和输出均为0；输入超出当前装配支路
+ *       的几何可达范围时会先限幅，本函数无循环和阻塞。
+ */
+static float BallRodAngleToMotorAngle(float ball_rod_angle)
+{
+    const float zero_horizontal_distance =
+        FOUR_BAR_BC_LENGTH_MM - FOUR_BAR_AD_LENGTH_MM;
+    const float fixed_point_c_x =
+        (zero_horizontal_distance * zero_horizontal_distance +
+         FOUR_BAR_CD_LENGTH_MM * FOUR_BAR_CD_LENGTH_MM -
+         FOUR_BAR_AB_LENGTH_MM * FOUR_BAR_AB_LENGTH_MM) /
+        (2.0f * zero_horizontal_distance);
+    const float fixed_point_c_y =
+        sqrtf(FOUR_BAR_CD_LENGTH_MM * FOUR_BAR_CD_LENGTH_MM -
+              fixed_point_c_x * fixed_point_c_x);
+    float point_b_x;
+    float point_b_y;
+    float distance_db;
+    float acos_input;
+
+    if (ball_rod_angle > BALL_ROD_GEOMETRY_MAX_ANGLE_RAD)
+    {
+        ball_rod_angle = BALL_ROD_GEOMETRY_MAX_ANGLE_RAD;
+    }
+    else if (ball_rod_angle < BALL_ROD_GEOMETRY_MIN_ANGLE_RAD)
+    {
+        ball_rod_angle = BALL_ROD_GEOMETRY_MIN_ANGLE_RAD;
+    }
+
+    /*
+     * 以D为原点，图示CD朝右上方；BC水平时B位于C左侧。
+     * 球杆正向逆时针转动时，B点沿C点左下方运动。
+     */
+    point_b_x =
+        fixed_point_c_x - FOUR_BAR_BC_LENGTH_MM * cosf(ball_rod_angle);
+    point_b_y =
+        fixed_point_c_y - FOUR_BAR_BC_LENGTH_MM * sinf(ball_rod_angle);
+    distance_db = sqrtf(point_b_x * point_b_x + point_b_y * point_b_y);
+
+    /*
+     * A点同时位于以D为圆心、AD为半径的圆和以B为圆心、
+     * AB为半径的圆上。选择经过图示水平零位的装配支路。
+     */
+    acos_input =
+        (FOUR_BAR_AB_LENGTH_MM * FOUR_BAR_AB_LENGTH_MM -
+         FOUR_BAR_AD_LENGTH_MM * FOUR_BAR_AD_LENGTH_MM -
+         distance_db * distance_db) /
+        (2.0f * FOUR_BAR_AD_LENGTH_MM * distance_db);
+
+    // 浮点舍入可能使几何极限处略超出[-1, 1]，必须夹紧后再反余弦。
+    if (acos_input > 1.0f)
+    {
+        acos_input = 1.0f;
+    }
+    else if (acos_input < -1.0f)
+    {
+        acos_input = -1.0f;
+    }
+
+    return atan2f(point_b_y, point_b_x) - acosf(acos_input);
+}
+
 /**
  * @brief 根据球的位置误差计算达妙Pitch电机的目标角度。
  * @param target_position 球的目标位置，单位与视觉位置数据一致。
@@ -193,20 +278,24 @@ void DM_Pitch_ReturnZero(void)
  */
 void position_control(float target_position, float current_position)
 {
-    float angle_offset = PID_Position(&PID_DM_Pitch_Position,
-                                      current_position,
-                                      target_position,
-                                      BALL_BALANCE_MAX_TILT_ANGLE_RAD);
+    float ball_rod_target_angle =
+        PID_Position(&PID_DM_Pitch_Position,
+                     current_position,
+                     target_position,
+                     BALL_BALANCE_MAX_TILT_ANGLE_RAD);
+    float motor_angle_offset =
+        BallRodAngleToMotorAngle(ball_rod_target_angle);
 
     /*
-     * 最终目标角度先叠加平衡零点，再经过达妙绝对电控限位，
-     * 因此同时受到相对倾角±20°和绝对角度[-1.1, 0.65] rad的保护。
+     * PID输出表示BC球杆目标角度；经过四杆反解得到AD电机角度后，
+     * 再叠加电机零点并通过达妙绝对电控限位[-1.1, 0.65] rad。
      */
     float motor_target_angle =
-        DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD + angle_offset);
+        DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD +
+                     motor_angle_offset);
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
-                  motor_target_angle, 0.0f, 5.0f, 0.1f, 0.0f);
+                  motor_target_angle, 0.0f, 2.0f, 0.1f, 0.0f);
 }
 
 /**

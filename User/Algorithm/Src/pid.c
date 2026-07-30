@@ -35,8 +35,8 @@ PID_Position_Struct PID_sensor2;
 PID_Position_Struct PID_sensor3;
 PID_Position_Struct PID_DM_Pitch_Position;
 
-// 球杆位置环的积分项最多贡献±1.5°，单位rad。
-#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.02617994f
+// 球杆位置环的积分项最多贡献±3°，单位rad。
+#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.05235988f
 
 /**
  * @brief 初始化一个经典位置式 PID 实例。
@@ -200,7 +200,7 @@ void PID_Init(void)
      * 微分项根据相邻视觉帧的误差变化提供速度阻尼。
      */
     PID_PositionParamInit(&PID_DM_Pitch_Position,
-                          0.002f,  0.000002, 0.035f,
+                          0.0003f,  0.0000005, 0.02f,
                           DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD);
 }
 /**
