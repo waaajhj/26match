@@ -34,7 +34,7 @@ PID_Position_Struct PID_sensor1;
 PID_Position_Struct PID_sensor2;
 PID_Position_Struct PID_sensor3;
 PID_Position_Struct PID_DM_Pitch_Position;
-
+PID_Position_Struct PID_DM_Pitch_Position2;
 // 球杆位置环的积分项最多贡献±3°，单位rad。
 #define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.10235988f
 
@@ -200,7 +200,7 @@ void PID_Init(void)
      * 原始误差差分关闭，滤波后的视觉速度反馈在task.c中单独叠加。
      */
     PID_PositionParamInit(&PID_DM_Pitch_Position,
-                          0.0003f, 0.0000007f, 0.0f,
+                          0.00025f, 0.000001f, 0.0f,
                           DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD);
 }
 /**

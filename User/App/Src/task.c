@@ -2,12 +2,36 @@
 
 #include "motion_control.h"
 #include "jy61p.h"
+#include "pid.h"
+
+// 正5 cm阶段按倍率提高当前Kp，之后恢复原值。
+#define TASK_2_POSITIVE_KP_SCALE 1.47f
+
+// 任务2阶段只在主循环修改，可在Keil Watch中观察当前目标阶段。
+volatile Task2Stage_e task_2_stage = TASK_2_STAGE_IDLE;
+static float task_2_original_kp = 0.0f;
+static uint8_t task_2_positive_kp_enabled = 0U;
+
+/**
+ * @brief 恢复任务2启动前的位置环Kp。
+ * @note 仅正5 cm阶段临时提高Kp，任务切换或进入第二阶段时调用。
+ */
+static void Task2_RestoreOriginalKp(void)
+{
+    if (task_2_positive_kp_enabled != 0U)
+    {
+        PID_DM_Pitch_Position.Kp = task_2_original_kp;
+        task_2_positive_kp_enabled = 0U;
+    }
+}
 
 /**
  * @brief 任务1：只运行底盘循迹，不启用球杆闭环。
  */
 void task_1(void)
 {
+    Task2_RestoreOriginalKp();
+    task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Stop();
     ChassisTrack_Run();
     serial_screen_task = SERIAL_SCREEN_TASK_NONE;
@@ -18,9 +42,57 @@ void task_1(void)
  */
 void task_2(void)
 {
-    BallBalanceControl_Start(BALL_BALANCE_DEFAULT_TARGET_POSITION);
+    Task2_RestoreOriginalKp();
+    task_2_original_kp = PID_DM_Pitch_Position.Kp;
+    PID_DM_Pitch_Position.Kp =
+        task_2_original_kp * TASK_2_POSITIVE_KP_SCALE;
+    task_2_positive_kp_enabled = 1U;
+
+    BallBalanceControl_Start(
+        BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION,
+        BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
+    task_2_stage = TASK_2_STAGE_TO_POSITIVE_5CM;
     // 防止主循环重复启动同一任务。
     serial_screen_task = SERIAL_SCREEN_TASK_NONE;
+}
+
+/**
+ * @brief 在主循环中推进任务2的目标点序列。
+ * @note TIM4负责更新连续到达计数；本函数无阻塞行为。
+ *       切换到-5 cm后不再更换目标，TIM4持续运行闭环保持平衡。
+ */
+void task_2_update(void)
+{
+    if (ball_balance_target_in_range_count == 0U)
+    {
+        return;
+    }
+
+    switch (task_2_stage)
+    {
+        case TASK_2_STAGE_TO_POSITIVE_5CM:
+            // 从中心返回-5 cm的第二阶段恢复当前原始PID参数。
+            Task2_RestoreOriginalKp();
+            BallBalanceControl_SetTarget(
+                BALL_BALANCE_DEFAULT_TARGET_POSITION,
+                BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
+            task_2_stage = TASK_2_STAGE_TO_CENTER;
+            break;
+
+        case TASK_2_STAGE_TO_CENTER:
+            BallBalanceControl_SetTarget(
+                BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION,
+                BALL_BALANCE_FINAL_TOLERANCE_PIXEL);
+            task_2_stage = TASK_2_STAGE_TO_NEGATIVE_5CM;
+            break;
+
+        case TASK_2_STAGE_TO_NEGATIVE_5CM:
+            // 最终目标不再切换，位置环和速度反馈持续稳定小球。
+            break;
+
+        default:
+            break;
+    }
 }
 
 /**
@@ -28,8 +100,12 @@ void task_2(void)
  */
 void task_3(void)
 {
-    BallBalanceControl_Start(BALL_BALANCE_DEFAULT_TARGET_POSITION);
-    ChassisTrack2_Run();
+    Task2_RestoreOriginalKp();
+    task_2_stage = TASK_2_STAGE_IDLE;
+    BallBalanceControl_Start(
+        BALL_BALANCE_DEFAULT_TARGET_POSITION,
+        BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
+    // ChassisTrack2_Run();
     serial_screen_task = SERIAL_SCREEN_TASK_NONE;
 }
 

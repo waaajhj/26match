@@ -170,6 +170,8 @@ int main(void)
     // 串口屏任务在主循环执行；任务3运行时，球杆控制由 TIM4 中断并行完成。
 //		track_dynamic_Speed(8);
     task_switch();
+    // 任务2到达标志由TIM4置位，目标点切换在主循环完成。
+    task_2_update();
 		//    DMMotorDisable(DM_PITCH_TX_ID,MIT_MODE);//失能读取电机角度
 //		HAL_Delay(10);
 //		OLED_ShowNum(1,1,1,1);//olde测试

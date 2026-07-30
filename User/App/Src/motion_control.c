@@ -16,10 +16,6 @@
 // 底盘循迹目标速度，单位沿用当前达妙底盘速度接口。
 #define speed_target 10.0f
 
-// 视觉有效范围，单位pixel；保留用于后续任务目标与边界判断。
-#define BALL_BALANCE_VISUAL_START_PIXEL 122.0f
-#define BALL_BALANCE_VISUAL_END_PIXEL 453.0f
-
 // 球杆水平时电机的中立位置，单位rad，以达妙电机保存零点为基准。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
 
@@ -59,14 +55,15 @@
  * volatile变量由主循环任务和定时器回调共同访问，也便于LinkScope调试。
  */
 volatile uint8_t ball_balance_control_enabled = 0U;
+volatile uint8_t ball_balance_target_in_range_count = 0U;
 volatile float ball_balance_target_position =
     BALL_BALANCE_DEFAULT_TARGET_POSITION;
-volatile uint32_t ball_balance_control_count = 0U;
-volatile uint32_t ball_balance_no_new_frame_count = 0U;
+volatile float ball_balance_target_tolerance_pixel =
+    BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL;
 volatile float ball_balance_raw_velocity_pixel_s = 0.0f;
 volatile float ball_balance_filtered_velocity_pixel_s = 0.0f;
 // 速度反馈增益，单位rad/(pixel/s)，可在LinkScope中实时修改。
-volatile float ball_balance_velocity_kv = 0.00044f;
+volatile float ball_balance_velocity_kv = 0.00038f;
 volatile float ball_balance_velocity_feedback_angle_rad = 0.0f;
 volatile float ball_balance_rod_target_angle_rad = 0.0f;
 
@@ -151,11 +148,15 @@ void ChassisMotionTime_Stop(void)
 /**
  * @brief 启动TIM4球杆位置控制。
  * @param target_position 视觉坐标系中的目标位置，单位pixel。
+ * @param tolerance_pixel 当前目标的到达判断半宽，单位pixel。
  * @note TIM4已在main()中启动，本函数只打开控制开关并复位位置环状态。
  */
-void BallBalanceControl_Start(float target_position)
+void BallBalanceControl_Start(float target_position,
+                              float tolerance_pixel)
 {
     ball_balance_target_position = target_position;
+    ball_balance_target_tolerance_pixel = tolerance_pixel;
+    ball_balance_target_in_range_count = 0U;
     ball_balance_last_packet_count = point_packet_rx_count;
     PID_DM_Pitch_Position.Error = 0.0f;
     PID_DM_Pitch_Position.Integral = 0.0f;
@@ -179,6 +180,7 @@ void BallBalanceControl_Start(float target_position)
 void BallBalanceControl_Stop(void)
 {
     ball_balance_control_enabled = 0U;
+    ball_balance_target_in_range_count = 0U;
     PID_DM_Pitch_Position.Error = 0.0f;
     PID_DM_Pitch_Position.Integral = 0.0f;
     PID_DM_Pitch_Position.IntegralOutput = 0.0f;
@@ -193,6 +195,23 @@ void BallBalanceControl_Stop(void)
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD,
                   0.0f, 2.0f, 0.1f, 0.0f);
+}
+
+/**
+ * @brief 在控制运行期间修改小球目标位置。
+ * @param target_position 新目标位置，单位pixel。
+ * @param tolerance_pixel 新目标的到达判断半宽，单位pixel。
+ * @note 本函数由主循环调用；会清除旧目标的到达标志和积分，
+ *       但保留视觉速度滤波状态，避免切换目标时失去速度阻尼。
+ */
+void BallBalanceControl_SetTarget(float target_position,
+                                  float tolerance_pixel)
+{
+    ball_balance_target_position = target_position;
+    ball_balance_target_tolerance_pixel = tolerance_pixel;
+    ball_balance_target_in_range_count = 0U;
+    PID_DM_Pitch_Position.Integral = 0.0f;
+    PID_DM_Pitch_Position.IntegralOutput = 0.0f;
 }
 
 /**
@@ -448,14 +467,14 @@ void ChassisTrack2_Run(void)
     S_regulate_track(0, speed_target, 800); // 加速到目标速度
     time_on = read_time();
 
-    while (read_time() <= time_on + time)
+    while (read_time() <= time_on + 1000)
     {
         track_dynamic_Speed(speed_target);
         ChassisMotionTime_Update();
-        delay_ms(5);
+        delay_ms(3);
     }
 
-    S_regulate_Ctl(speed_target, 0.0f, 300); // 减速停车
+    // S_regulate_Ctl(speed_target, 0.0f, 300); // 减速停车
     ChassisMotionTime_Stop();
 }
 
@@ -476,6 +495,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
         uint32_t current_packet_count;
         float current_position;
+        float current_target_position;
+        float current_target_tolerance_pixel;
 
         if (ball_balance_control_enabled == 0U)
         {
@@ -487,7 +508,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             (current_packet_count == ball_balance_last_packet_count))
         {
             // 没有新视觉数据时保持上一条电机指令，不重复计算位置环。
-            ball_balance_no_new_frame_count++;
             return;
         }
 
@@ -496,8 +516,28 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
          * TIM4因此可用计数变化判断当前坐标是否为一帧新数据。
          */
         current_position = (float)point_packet.centerpoint_x;
+        current_target_position = ball_balance_target_position;
+        current_target_tolerance_pixel =
+            ball_balance_target_tolerance_pixel;
         ball_balance_last_packet_count = current_packet_count;
-        position_control(ball_balance_target_position, current_position);
-        ball_balance_control_count++;
+
+        position_control(current_target_position, current_position);
+
+        // 连续计数离开当前目标对应的像素阈值后立即清零。
+        if ((current_position >=
+             current_target_position - current_target_tolerance_pixel) &&
+            (current_position <=
+             current_target_position + current_target_tolerance_pixel))
+        {
+            if (ball_balance_target_in_range_count < 255U)
+            {
+                ball_balance_target_in_range_count++;
+            }
+        }
+        else
+        {
+            ball_balance_target_in_range_count = 0U;
+        }
+
     }
 }
