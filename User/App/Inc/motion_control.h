@@ -6,23 +6,23 @@
 /*
  * 球杆视觉坐标，单位pixel。
  * 相机有效范围为12~457 pixel；任务目标采用装机后的实测标定值：
- * +5 cm为128 pixel、中心0点为228 pixel、-5 cm为322 pixel。
+ * +5 cm为128 pixel、中心0点为227 pixel、-5 cm为322 pixel。
  * 本机构定义的正方向对应像素减小，重新安装相机后应重新标定三点。
  */
-#define BALL_BALANCE_VISUAL_START_PIXEL 12.0f
-#define BALL_BALANCE_VISUAL_END_PIXEL 457.0f
+#define BALL_BALANCE_VISUAL_START_PIXEL 15.0f
+#define BALL_BALANCE_VISUAL_END_PIXEL 460.0f
 #define BALL_BALANCE_VISUAL_LENGTH_CM 25.0f
-#define BALL_BALANCE_DEFAULT_TARGET_POSITION 228.0f
+#define BALL_BALANCE_DEFAULT_TARGET_POSITION 227.0f
 // #define BALL_BALANCE_FIVE_CM_OFFSET_PIXEL \
 //     (((BALL_BALANCE_VISUAL_END_PIXEL - BALL_BALANCE_VISUAL_START_PIXEL) / \
 //       BALL_BALANCE_VISUAL_LENGTH_CM) * 5.0f)
-#define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 128.0f
+#define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 135.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION + BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
-#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 322.0f
+#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 332.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION - BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
 
 // 正5 cm和中心使用±25 pixel，最终-5 cm稳定判断使用±15 pixel。
-#define BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL 25.0f
+#define BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL 20.0f // +5 cm阶段到达阈值，按当前任务时间要求设置
 #define BALL_BALANCE_FINAL_TOLERANCE_PIXEL 15.0f
 
 /**
@@ -95,8 +95,10 @@ typedef struct
     volatile float chassis_acceleration_raw_rad_s2; // S曲线指令加速度(rad/s^2)
     volatile float chassis_acceleration_rad_s2;     // 送入前馈的滤波加速度
     float acceleration_filter_alpha;                // 指令加速度滤波系数[0,1]
+    float brake_release_filter_alpha;               // 刹车前馈退出滤波系数[0,1]
     float acceleration_feedforward_gain;
-    float acceleration_feedforward_limit_rad;
+    float acceleration_feedforward_limit_rad;       // 正向加速前馈角限幅(rad)
+    float acceleration_brake_feedforward_limit_rad; // 刹车减速前馈角限幅(rad)
     volatile float acceleration_feedforward_angle_rad;
 } Task3SegmentedControl_t;
 
@@ -141,6 +143,7 @@ void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2);
  */
 void ChassisTrack_Run(void);
 void ChassisTrack2_Run(void);
+void ChassisTrack3_Run(void);
 void ChassisMotionTime_Start(void);
 void ChassisMotionTime_Update(void);
 void ChassisMotionTime_Stop(void);

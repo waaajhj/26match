@@ -4,23 +4,26 @@
 #include "jy61p.h"
 #include "pid.h"
 
-// 正5 cm阶段按倍率提高当前Kp，之后恢复原值。
-#define TASK_2_POSITIVE_KP_SCALE 1.47f
+// 正5 cm阶段提高位置P并降低速度阻尼，兼顾到达速度和目标精度。
+#define TASK_2_POSITIVE_KP_SCALE 1.65f // 降低+5 cm转向前惯性，同时保持快速到达
+#define TASK_2_POSITIVE_KV 0.00020f
 
 // 任务2阶段只在主循环修改，可在Keil Watch中观察当前目标阶段。
 volatile Task2Stage_e task_2_stage = TASK_2_STAGE_IDLE;
 static float task_2_original_kp = 0.0f;
+static float task_2_original_kv = 0.0f;
 static uint8_t task_2_positive_kp_enabled = 0U;
 
 /**
- * @brief 恢复任务2启动前的位置环Kp。
- * @note 仅正5 cm阶段临时提高Kp，任务切换或进入第二阶段时调用。
+ * @brief 恢复任务2启动前的位置P和速度反馈系数。
+ * @note 仅正5 cm阶段临时修改参数，任务切换或进入第二阶段时调用。
  */
-static void Task2_RestoreOriginalKp(void)
+static void Task2_RestoreOriginalParams(void)
 {
     if (task_2_positive_kp_enabled != 0U)
     {
         PID_DM_Pitch_Position.Kp = task_2_original_kp;
+        ball_balance_velocity_kv = task_2_original_kv;
         task_2_positive_kp_enabled = 0U;
     }
 }
@@ -32,7 +35,7 @@ void task_1(void)
 {
     Task2SegmentedControl_Disable();
     Task3SegmentedControl_Disable();
-    Task2_RestoreOriginalKp();
+    Task2_RestoreOriginalParams();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Stop();
     ChassisTrack_Run();
@@ -46,10 +49,12 @@ void task_2(void)
 {
     Task2SegmentedControl_Disable();
     Task3SegmentedControl_Disable();
-    Task2_RestoreOriginalKp();
+    Task2_RestoreOriginalParams();
     task_2_original_kp = PID_DM_Pitch_Position.Kp;
+    task_2_original_kv = ball_balance_velocity_kv;
     PID_DM_Pitch_Position.Kp =
         task_2_original_kp * TASK_2_POSITIVE_KP_SCALE;
+    ball_balance_velocity_kv = TASK_2_POSITIVE_KV;
     task_2_positive_kp_enabled = 1U;
 
     BallBalanceControl_Start(
@@ -77,7 +82,7 @@ void task_2_update(void)
     {
         case TASK_2_STAGE_TO_POSITIVE_5CM:
             // 直接进入-5 cm阶段，省略中心目标以缩短任务时间。
-            Task2_RestoreOriginalKp();
+            Task2_RestoreOriginalParams();
             Task2SegmentedControl_Enable();
             BallBalanceControl_SetTarget(
                 BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION,
@@ -100,15 +105,29 @@ void task_2_update(void)
 void task_3(void)
 {
     Task2SegmentedControl_Disable();
-    Task2_RestoreOriginalKp();
+    Task2_RestoreOriginalParams();
     Task3SegmentedControl_Disable();
     Task3SegmentedControl_Enable();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Start(
         BALL_BALANCE_DEFAULT_TARGET_POSITION,
         0.0f); // 任务3无到达阈值，TIM4始终执行五段闭环。
-    // ChassisTrack2_Run();
+    ChassisTrack2_Run();
     serial_screen_task = SERIAL_SCREEN_TASK_NONE;
+}
+void task_4(void)
+{ 
+    Task2SegmentedControl_Disable();
+    Task2_RestoreOriginalParams();
+    Task3SegmentedControl_Disable();
+    Task3SegmentedControl_Enable();
+    task_2_stage = TASK_2_STAGE_IDLE;
+    BallBalanceControl_Start(
+        BALL_BALANCE_DEFAULT_TARGET_POSITION,
+        0.0f); // 任务4无到达阈值，TIM4始终执行五段闭环。
+    ChassisTrack3_Run();
+    serial_screen_task = SERIAL_SCREEN_TASK_NONE;
+
 }
 
 /**
@@ -130,6 +149,7 @@ void task_switch(void)
             task_3();
             break;
         case SERIAL_SCREEN_TASK_4:
+            task_4();
             break;
         case SERIAL_SCREEN_TASK_5:
             break;

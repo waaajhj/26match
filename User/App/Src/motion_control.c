@@ -15,6 +15,8 @@
 
 // 底盘循迹目标速度，单位沿用当前达妙底盘速度接口。
 #define speed_target 10.0f
+// 任务3规定的底盘循迹速度，集中定义便于按赛题要求确认和修改。
+#define TASK3_CHASSIS_SPEED 7.0f
 
 // 球杆水平时电机的中立位置，单位rad，以达妙电机保存零点为基准。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
@@ -26,7 +28,7 @@
  * 视觉速度反馈参数。
  * 速度单位为pixel/s，反馈输出单位为rad；正速度表示小球坐标向右增大。
  * 60 ms一阶低通用于削弱视觉坐标抖动。
- * 任务2普通阶段使用±2°，任务2分段控制和任务3使用±4°限幅。
+ * 任务2普通阶段使用±2°，任务2分段控制和任务3使用独立的±4°限幅。
  */
 #define BALL_VELOCITY_FILTER_TIME_CONSTANT_S 0.060f
 #define BALL_VELOCITY_FEEDBACK_TASK2_LIMIT_RAD 0.03490659f
@@ -83,9 +85,9 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .velocity_filter_time_constant_s = 0.040f,
     .near_velocity_deadband_pixel_s = 15.0f,
     .near = {
-        .Kp = 0.00020f,
+        .Kp = 0.00028f,
         .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
-        .Kv = 0.00035f, // 降低延迟速度反馈的能量注入，利用机械阻尼缩短振荡
+        .Kv = 0.00038f, // 实测阻尼与响应速度的折中值
     },
     .low_pixel_middle = {
         .Kp = 0.00026f,
@@ -114,9 +116,11 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     },
     .chassis_acceleration_raw_rad_s2 = 0.0f,
     .chassis_acceleration_rad_s2 = 0.0f,
-    .acceleration_filter_alpha = 1.0f,
-    .acceleration_feedforward_gain = 0.00205f, // S曲线加速度前馈增大至原来的3倍
-    .acceleration_feedforward_limit_rad = 0.08726646f, // 前馈球杆角限幅±5°
+    .acceleration_filter_alpha = 1.0f, // S曲线加速度直接参与前馈，避免滤波滞后引起反向回摆
+    .brake_release_filter_alpha = 0.65f, // 缩短刹车前馈残留，进一步减小停车后的低像素侧超调
+    .acceleration_feedforward_gain = 0.00410f, // 底盘实测补偿增益，由独立角度限幅保护
+    .acceleration_feedforward_limit_rad = 0.08726646f, // 正向启动前馈限幅+5°，减小启动瞬间跳动
+    .acceleration_brake_feedforward_limit_rad = 0.10471976f, // 刹车前馈角限幅-6°
     .acceleration_feedforward_angle_rad = 0.0f,
 };
 
@@ -129,25 +133,25 @@ volatile Task2SegmentedControl_t task2_segmented_control = {
     .active_segment = TASK_2_SEGMENT_LOW_PIXEL_NEAR,
     .near_error_limit_pixel = 30.0f,
     .middle_error_limit_pixel = 100.0f,
-    .velocity_filter_time_constant_s = 0.040f,
-    .near_velocity_deadband_pixel_s = 15.0f,
+    .velocity_filter_time_constant_s = 0.025f, // 减少任务2转向时的速度相位滞后，抑制回摆跌破305像素
+    .near_velocity_deadband_pixel_s = 15.0f, // 减小任务2近段速度死区，提前抑制后续小幅回摆
     .low_pixel_near = {
-        .Kp = 0.00016f,
+        .Kp = 0.00036f, // 提高近段静摩擦克服能力，避免长时间停在-5 cm目标之前
         .Ki = 0.0f,
-        .Kv = 0.00030f, // 配合任务2专用电机刚度，减少近点反向驱动和连续回摆
+        .Kv = 0.00020f, // 小幅增加近段阻尼，缩短首次到达后的回摆距离
     },
     .high_pixel_near = {
         .Kp = 0.00020f,
         .Ki = 0.0f,
-        .Kv = 0.00020f, // 高像素侧使用更小阻尼，避免越过目标后再次反向过冲
+        .Kv = 0.00015f, // 减轻越过-5 cm后的反向制动，用高像素侧余量换取更小的低像素回摆
     },
     .middle = {
-        .Kp = 0.00026f,
+        .Kp = 0.00026f, // 接近-5 cm时降低位置驱动，避免带着过大速度进入近段
         .Ki = 0.0f,
-        .Kv = 0.00030f,
+        .Kv = 0.00030f, // 在误差30~100 pixel区间提前制动，降低进入目标区的速度
     },
     .far = {
-        .Kp = 0.00028f,
+        .Kp = 0.00024f, // 降低+5 cm转向-5 cm初段的加速能量，减小进入近段后的回摆
         .Ki = 0.0f,
         .Kv = 0.00024f,
     },
@@ -648,12 +652,28 @@ void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2)
 
 /**
  * @brief 以TIM4固定周期更新任务3使用的底盘指令加速度。
- * @note S曲线加速度本身连续，默认alpha为1直接使用；保留滤波接口便于调试。
+ * @note 正向加速和刹车建立时直接跟随S曲线；刹车加速度回到0时单独缓慢退出，
+ *       用来补偿底盘已经减速而小球仍因惯性继续向高像素侧运动的延迟。
  */
 static void Task3ChassisAccelerationUpdate(void)
 {
     float filter_alpha =
         task3_segmented_control.acceleration_filter_alpha;
+    float acceleration_raw =
+        task3_segmented_control.chassis_acceleration_raw_rad_s2;
+    float acceleration_filtered =
+        task3_segmented_control.chassis_acceleration_rad_s2;
+
+    /*
+     * 只在负向刹车加速度向0恢复时使用较小系数。
+     * 启动前馈和刹车前馈的建立速度保持不变，避免破坏已经稳定的启动段。
+     */
+    if ((acceleration_filtered < 0.0f) &&
+        (acceleration_raw > acceleration_filtered))
+    {
+        filter_alpha =
+            task3_segmented_control.brake_release_filter_alpha;
+    }
 
     // 限制滤波系数，防止LinkScope在线调参时输入无效范围。
     if (filter_alpha < 0.0f)
@@ -667,12 +687,12 @@ static void Task3ChassisAccelerationUpdate(void)
 
     task3_segmented_control.chassis_acceleration_rad_s2 +=
         filter_alpha *
-        (task3_segmented_control.chassis_acceleration_raw_rad_s2 -
+        (acceleration_raw -
          task3_segmented_control.chassis_acceleration_rad_s2);
 }
 
 /**
- * @brief 根据滤波后的底盘加速度计算并限制任务3前馈球杆角。
+ * @brief 根据滤波后的底盘加速度计算任务3前馈，并分别限制加速和刹车角度。
  * @retval 加速度前馈球杆角，单位rad。
  */
 static float Task3AccelerationFeedforwardUpdate(void)
@@ -688,10 +708,10 @@ static float Task3AccelerationFeedforwardUpdate(void)
             task3_segmented_control.acceleration_feedforward_limit_rad;
     }
     else if (feedforward_angle <
-             -task3_segmented_control.acceleration_feedforward_limit_rad)
+             -task3_segmented_control.acceleration_brake_feedforward_limit_rad)
     {
         feedforward_angle =
-            -task3_segmented_control.acceleration_feedforward_limit_rad;
+            -task3_segmented_control.acceleration_brake_feedforward_limit_rad;
     }
 
     task3_segmented_control.acceleration_feedforward_angle_rad =
@@ -874,10 +894,14 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
                      motor_angle_offset);
 
     /*
-     * 任务2从+5 cm直达-5 cm时适度提高电机位置跟随刚度，
-     * 加快球杆反向，减少电机滞后引起的连续回摆；其他任务保持原值。
+     * 任务3进一步提高电机位置跟随刚度，减小底盘启停时球杆的跟随滞后；
+     * 任务2保留已经调好的3.0，避免任务3调参改变任务2运动效果。
      */
-    if (task2_segmented_control.enabled != 0U)
+    if (task3_segmented_control.enabled != 0U)
+    {
+        motor_position_kp = 3.5f;
+    }
+    else if (task2_segmented_control.enabled != 0U)
     {
         motor_position_kp = 3.0f;
     }
@@ -946,23 +970,44 @@ void ChassisTrack2_Run(void)
     uint32_t time_on;
 
     ChassisMotionTime_Start();
-    S_regulate_track(0, speed_target-5, 1500); // 加速到目标速度
+    // 1.5 s加速、4.5 s匀速、1.5 s刹车，总计7.5 s，为8 s要求留出余量。
+    S_regulate_track(0, TASK3_CHASSIS_SPEED, 1500);
     time_on = read_time();
 
     while (read_time() <= time_on + 8000)
     {
-        track_dynamic_Speed(speed_target-5);
+        track_dynamic_Speed(TASK3_CHASSIS_SPEED);
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-	S_regulate_track(0, speed_target-5, 1500);
+	S_regulate_track(TASK3_CHASSIS_SPEED, 0, 1500);
     DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
 		delay_ms(3);
     DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
     // S_regulate_Ctl(speed_target, 0.0f, 300); // 减速停车
     ChassisMotionTime_Stop();
 }
-
+/**
+ * @brief 执行一次底盘循迹：平滑加速、循迹至路口并停车。
+ * @note 本函数在主循环上下文运行并包含阻塞循环；
+ *       球杆控制可由TIM4中断并行执行。
+ */
+void ChassisTrack3_Run(void)
+{
+    ChassisMotionTime_Start();
+    S_regulate_track(0, speed_target-3, 1500); // 加速到目标速度
+    while (scan_cross_nostop(line) != 0)
+    {
+        track_dynamic_Speed(speed_target-3);
+        ChassisMotionTime_Update();
+        delay_ms(3);
+    }
+    S_regulate_track(TASK3_CHASSIS_SPEED, 0, 3000);
+    // 到达路口后直接发送零速度，保留当前任务1的停车行为。
+    DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
+    DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
+    ChassisMotionTime_Stop();
+}
 /**
  * @brief HAL定时器周期回调。
  * @note TIM3每10 ms查询一次灰度模块；TIM4每20 ms更新任务3加速度前馈，
