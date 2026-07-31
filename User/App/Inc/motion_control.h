@@ -87,7 +87,10 @@ typedef struct
     float target_offset_pixel;                  // 任务3内部目标零偏(pixel)，不修改公共中心坐标
     float velocity_filter_time_constant_s;       // 任务3视觉速度滤波时间常数
     float near_velocity_deadband_pixel_s;        // 近段速度反馈死区(pixel/s)
-    float startup_velocity_kv;                   // 任务3底盘加速阶段专用速度反馈增益(rad/(pixel/s))
+    float startup_velocity_kv;                   // 加速阶段向低像素滑动时的速度反馈增益(rad/(pixel/s))
+    float transition_high_brake_start_pixel;     // 前5 s高像素软边界制动起点(pixel)
+    float transition_high_brake_gain_rad_per_pixel; // 超过软边界后的附加制动增益(rad/pixel)
+    float transition_high_brake_limit_rad;       // 前5 s高像素附加制动角限幅(rad)
     Task3SegmentParam_t near;
     Task3SegmentParam_t low_pixel_middle;
     Task3SegmentParam_t low_pixel_far;

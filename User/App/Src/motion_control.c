@@ -17,10 +17,12 @@
 #define speed_target 10.0f
 // 任务3规定的底盘循迹速度，集中定义便于按赛题要求确认和修改。
 #define TASK3_CHASSIS_SPEED 7.0f
-// 任务3底盘S曲线加速时间(ms)，同时决定匀速目标零偏开始生效的时刻。
+// 任务3底盘S曲线加速时间(ms)，用于加速阶段速度反馈策略切换。
 #define TASK3_CHASSIS_ACCELERATION_TIME_MS 2500U
-// 加速结束后用1 s渐入任务3目标零偏，避免目标坐标阶跃激起新的往返振荡。
-#define TASK3_TARGET_OFFSET_RAMP_TIME_MS 1000U
+// 底盘加速结束后开始介入稳态零偏，用于抑制2.5~4 s的第二次高像素回摆。
+#define TASK3_TARGET_OFFSET_START_TIME_MS 2500U
+// 用2.5 s缓慢渐入目标零偏，兼顾高像素回摆与低像素过度纠正。
+#define TASK3_TARGET_OFFSET_RAMP_TIME_MS 2500U
 
 // 球杆水平时电机的中立位置，单位rad，以达妙电机保存零点为基准。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
@@ -92,10 +94,13 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .velocity_filter_time_constant_s = 0.040f, // 恢复实测更平稳的任务3速度滤波，避免速度噪声放大回摆
     .near_velocity_deadband_pixel_s = 15.0f,
     .startup_velocity_kv = 0.00038f, // 默认与近段一致，由任务3单独设置加速阶段柔化值
+    .transition_high_brake_start_pixel = 245.0f,
+    .transition_high_brake_gain_rad_per_pixel = 0.0f, // 由任务3单独打开，默认不改变其他任务
+    .transition_high_brake_limit_rad = 0.00872665f, // 最大附加制动0.5°
     .near = {
         .Kp = 0.00028f, // 恢复实测较平稳的近段位置增益，避免中心附近反复大幅回摆
         .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
-        .Kv = 0.00030f, // 保存本次实测停车后能够稳定的任务3速度反馈增益
+        .Kv = 0.00038f, // 加速结束后恢复较大速度阻尼，抑制第二次及后续回摆
     },
     .low_pixel_middle = {
         .Kp = 0.00026f,
@@ -970,15 +975,17 @@ static void Task3SegmentedControl_Update(float target_position,
     kv = selected_param->Kv;
 
     /*
-     * 支持底盘S曲线加速阶段单独设置Kv；当前实测停稳版本的启动Kv与
-     * 近段Kv均为0.00030，因此切换前后不会产生参数阶跃。
+     * 底盘加速阶段向低像素滑动时使用较小Kv，减小电机目标大幅反向；
+     * 前5 s向高像素回摆时使用独立的稍大Kv，提前增强高侧回摆制动。
      */
     if ((chassis_motion_timing_active != 0U) &&
         (chassis_motion_elapsed_ms <
-         TASK3_CHASSIS_ACCELERATION_TIME_MS))
+         TASK3_CHASSIS_ACCELERATION_TIME_MS) &&
+        (ball_balance_filtered_velocity_pixel_s <= 0.0f))
     {
         kv = task3_segmented_control.startup_velocity_kv;
     }
+    // 其余方向和阶段恢复分段Kv，避免过强速度制动再次激起反向回摆。
 
     if (selected_segment !=
         task3_segmented_control.active_segment)
@@ -1067,9 +1074,40 @@ void position_control(float target_position,
                      BALL_BALANCE_MAX_TILT_ANGLE_RAD);
     float velocity_feedback_angle =
         BallVelocityFeedbackUpdate(current_position);
-    float ball_rod_target_angle =
+    float transition_high_brake_angle = 0.0f;
+    float ball_rod_target_angle;
+
+    /*
+     * 仅在任务3前5 s、小球已经接近高像素边界且仍向高像素运动时，
+     * 增加一个平滑的负球杆角。速度反向后立即退出，避免继续把小球推向低侧。
+     */
+    if ((task3_segmented_control.enabled != 0U) &&
+        (chassis_motion_timing_active != 0U) &&
+        (chassis_motion_elapsed_ms <
+         (TASK3_TARGET_OFFSET_START_TIME_MS +
+          TASK3_TARGET_OFFSET_RAMP_TIME_MS)) &&
+        (ball_balance_filtered_velocity_pixel_s > 0.0f) &&
+        (current_position >
+         task3_segmented_control.transition_high_brake_start_pixel) &&
+        (task3_segmented_control.transition_high_brake_gain_rad_per_pixel >
+         0.0f))
+    {
+        transition_high_brake_angle =
+            -(current_position -
+              task3_segmented_control.transition_high_brake_start_pixel) *
+            task3_segmented_control.transition_high_brake_gain_rad_per_pixel;
+
+        if (transition_high_brake_angle <
+            -task3_segmented_control.transition_high_brake_limit_rad)
+        {
+            transition_high_brake_angle =
+                -task3_segmented_control.transition_high_brake_limit_rad;
+        }
+    }
+
+    ball_rod_target_angle =
         position_loop_output + velocity_feedback_angle +
-        feedforward_angle_rad;
+        feedforward_angle_rad + transition_high_brake_angle;
 
     ball_balance_velocity_feedback_angle_rad = velocity_feedback_angle;
     BallBalanceRodAngleCommandSend(ball_rod_target_angle);
@@ -1209,11 +1247,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         if ((task3_segmented_control.enabled != 0U) &&
             (chassis_motion_timing_active != 0U) &&
             (chassis_motion_elapsed_ms >=
-             TASK3_CHASSIS_ACCELERATION_TIME_MS))
+             TASK3_TARGET_OFFSET_START_TIME_MS))
         {
             uint32_t target_offset_elapsed_ms =
                 chassis_motion_elapsed_ms -
-                TASK3_CHASSIS_ACCELERATION_TIME_MS;
+                TASK3_TARGET_OFFSET_START_TIME_MS;
             float target_offset_scale =
                 (float)target_offset_elapsed_ms /
                 (float)TASK3_TARGET_OFFSET_RAMP_TIME_MS;
@@ -1224,8 +1262,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             }
 
             /*
-             * 任务3仅在S曲线启动加速结束后渐入目标零偏修正稳态偏置；
-             * 启动阶段仍控制真实中心227，公共目标不变且不影响任务2。
+             * 任务3在底盘加速结束后缓慢渐入目标零偏修正稳态偏置；
+             * 较长渐入时间避免2.5~4 s过渡阶段因目标变化过快产生低侧过冲。
              */
             current_target_position +=
                 task3_segmented_control.target_offset_pixel *

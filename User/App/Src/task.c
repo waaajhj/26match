@@ -112,11 +112,15 @@ void task_3(void)
      * 任务3采用折中零偏-14，继续由片上数据校准且不改变任务2目标。
      */
     task3_segmented_control.target_offset_pixel = -14.0f;
-    // 仅底盘0~2.5 s加速阶段使用较小Kv，降低首次回摆，随后自动恢复分段Kv。
+    // 加速时向低像素滑动使用较小Kv，减小电机目标大幅反向。
     task3_segmented_control.startup_velocity_kv = 0.00030f;
+    // 从245 pixel开始施加高侧软边界制动，最大附加0.5°且仅在前5 s生效。
+    task3_segmented_control.transition_high_brake_start_pixel = 245.0f;
+    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
+    task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
     // 任务3启动前馈以0.60系数退出，缩短补偿残留并抑制加速结束后的高像素侧超调。
     task3_segmented_control.acceleration_release_filter_alpha = 0.60f;
-    // 保存本次实测停稳版本的任务3正向启动前馈限幅+4.5°。
+    // 恢复实测低像素侧保护更好的任务3正向启动前馈限幅+4.5°。
     task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;
     // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
     task3_segmented_control.pitch_motor_kd = 0.1f;
@@ -140,6 +144,8 @@ void task_4(void)
     // 任务4保持全程原近段Kv，不沿用任务3的加速阶段柔化参数。
     task3_segmented_control.startup_velocity_kv =
         task3_segmented_control.near.Kv;
+    // 任务4关闭任务3专用的前5 s高像素软边界制动。
+    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0f;
     // 任务4保持原前馈退出方式，避免任务3调参改变任务4效果。
     task3_segmented_control.acceleration_release_filter_alpha = 1.0f;
     // 任务4恢复原正向前馈限幅+5°，不沿用任务3参数。
