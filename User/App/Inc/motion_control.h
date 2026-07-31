@@ -84,23 +84,87 @@ typedef struct
     volatile Task3Segment_e active_segment;
     float near_error_limit_pixel;
     float middle_error_limit_pixel;
+    float target_offset_pixel;                  // 任务3内部目标零偏(pixel)，不修改公共中心坐标
     float velocity_filter_time_constant_s;       // 任务3视觉速度滤波时间常数
     float near_velocity_deadband_pixel_s;        // 近段速度反馈死区(pixel/s)
+    float startup_velocity_kv;                   // 任务3底盘加速阶段专用速度反馈增益(rad/(pixel/s))
     Task3SegmentParam_t near;
     Task3SegmentParam_t low_pixel_middle;
     Task3SegmentParam_t low_pixel_far;
     Task3SegmentParam_t high_pixel_middle;
     Task3SegmentParam_t high_pixel_far;
     Task3SegmentParam_t normal;
+    float pitch_motor_kp;                         // 任务3达妙Pitch电机MIT位置刚度
+    float pitch_motor_kd;                         // 任务3达妙Pitch电机MIT速度阻尼
     volatile float chassis_acceleration_raw_rad_s2; // S曲线指令加速度(rad/s^2)
     volatile float chassis_acceleration_rad_s2;     // 送入前馈的滤波加速度
     float acceleration_filter_alpha;                // 指令加速度滤波系数[0,1]
+    float acceleration_release_filter_alpha;        // 正向加速前馈退出系数[0,1]
     float brake_release_filter_alpha;               // 刹车前馈退出滤波系数[0,1]
     float acceleration_feedforward_gain;
     float acceleration_feedforward_limit_rad;       // 正向加速前馈角限幅(rad)
     float acceleration_brake_feedforward_limit_rad; // 刹车减速前馈角限幅(rad)
     volatile float acceleration_feedforward_angle_rad;
 } Task3SegmentedControl_t;
+
+// 任务3约12 s运行、视觉约42 Hz，600个样本可覆盖完整运动并保留余量。
+#define TASK3_DEBUG_SAMPLE_CAPACITY 600U
+
+/**
+ * @brief 任务3单片机内部调试样本，每个视觉新包记录一次。
+ * @note 角度单位为rad，速度单位为pixel/s，加速度单位为rad/s^2；
+ *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。
+ */
+typedef struct
+{
+    uint32_t tick_ms;
+    uint32_t elapsed_ms;
+    uint32_t packet_count;
+    uint32_t can_error_count;
+    uint16_t point_x;
+    uint8_t segment;
+    uint8_t motion_active;
+    float effective_target_pixel;
+    float pid_kp;
+    float pid_ki;
+    float pid_kd;
+    float pid_error;
+    float pid_integral_output;
+    float pid_differential;
+    float pid_output;
+    float raw_velocity_pixel_s;
+    float filtered_velocity_pixel_s;
+    float velocity_kv;
+    float velocity_feedback_angle_rad;
+    float rod_target_angle_rad;
+    float raw_acceleration_rad_s2;
+    float filtered_acceleration_rad_s2;
+    float feedforward_angle_rad;
+    float motor_target_angle_rad;
+    float motor_position_rad;
+    float motor_velocity_rad_s;
+    float motor_torque_nm;
+    float chassis_motor_1_velocity_rad_s;
+    float chassis_motor_1_acceleration_rad_s2;
+    float chassis_motor_2_velocity_rad_s;
+    float chassis_motor_2_acceleration_rad_s2;
+    float chassis_track_bias;
+    float chassis_track_output;
+} Task3DebugSample_t;
+
+/**
+ * @brief 任务3内部记录器状态和连续样本缓存。
+ * @note recording由任务3启动，底盘停止或缓存写满后清零；overflow表示样本被截断。
+ */
+typedef struct
+{
+    volatile uint16_t sample_count;
+    volatile uint8_t recording;
+    volatile uint8_t complete;
+    volatile uint8_t overflow;
+    uint8_t reserved[3];
+    Task3DebugSample_t samples[TASK3_DEBUG_SAMPLE_CAPACITY];
+} Task3DebugRecorder_t;
 
 /**
  * @brief 控制达妙Pitch电机返回保存的电机零点。
@@ -137,6 +201,13 @@ void Task3SegmentedControl_Disable(void);
 void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2);
 
 /**
+ * @brief 清空并启动任务3片上高速数据记录器。
+ * @note 仅在任务3控制和底盘即将启动时调用；函数不含循环、延时和通信，
+ *       缓存写满时会停止记录并置overflow，不会改变电机输出。
+ */
+void Task3DebugRecorder_Start(void);
+
+/**
  * @brief 底盘运动过程及OLED运行时间显示接口。
  * @note ChassisTrack_Run()和ChassisTrack2_Run()包含阻塞式运动循环，
  *       运行期间TIM4仍可中断并执行球杆控制。
@@ -160,6 +231,7 @@ extern volatile float ball_balance_velocity_feedback_angle_rad;
 extern volatile float ball_balance_rod_target_angle_rad;
 extern volatile Task2SegmentedControl_t task2_segmented_control;
 extern volatile Task3SegmentedControl_t task3_segmented_control;
+extern volatile Task3DebugRecorder_t task3_debug_recorder;
 
 // 底盘实时计时状态，单位为毫秒。
 extern volatile uint8_t chassis_motion_timing_active;

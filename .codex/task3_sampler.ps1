@@ -9,10 +9,13 @@ param(
     [ValidateRange(5, 100)]
     [int]$TailSampleCount = 25,
     [ValidateRange(10000, 600000)]
-    [int]$TriggerTimeoutMs = 120000
+    [int]$TriggerTimeoutMs = 120000,
+    [switch]$FastMode
 )
 
 $ErrorActionPreference = 'Stop'
+
+# FastMode reads only Task3 tuning variables to reduce DAP-Link interference.
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $axfPath = Join-Path $projectRoot 'MDK-ARM\26matchF4\26matchF4.axf'
@@ -252,6 +255,30 @@ $timingNames = @(
     'chassis_motion_timing_active',
     'chassis_motion_elapsed_ms'
 )
+# Regroup nearby addresses to minimize wireless DAP SWD transactions.
+$fastConfigNames = @(
+    'ball_balance_target_position',
+    'ball_balance_velocity_kv',
+    'task3_segmented_control.enabled',
+    'task3_segmented_control.active_segment',
+    'task3_segmented_control.chassis_acceleration_raw_rad_s2',
+    'task3_segmented_control.chassis_acceleration_rad_s2',
+    'task3_segmented_control.acceleration_feedforward_angle_rad'
+)
+$fastRuntimeNames = @(
+    'ball_balance_control_enabled',
+    'ball_balance_raw_velocity_pixel_s',
+    'ball_balance_filtered_velocity_pixel_s',
+    'ball_balance_velocity_feedback_angle_rad',
+    'ball_balance_rod_target_angle_rad',
+    'chassis_motion_timing_active',
+    'chassis_motion_elapsed_ms'
+)
+$fastVisionNames = @(
+    'uwTick',
+    'point_packet.centerpoint_x',
+    'point_packet_rx_count'
+)
 
 $controlLayout = Get-GroupLayout $controlNames
 $task3Layout = Get-GroupLayout $task3Names
@@ -259,6 +286,9 @@ $pidLayout = Get-GroupLayout $pidNames
 $chassisMotorLayout = Get-GroupLayout $chassisMotorNames
 $trackLayout = Get-GroupLayout $trackNames
 $timingLayout = Get-GroupLayout $timingNames
+$fastConfigLayout = Get-GroupLayout $fastConfigNames
+$fastRuntimeLayout = Get-GroupLayout $fastRuntimeNames
+$fastVisionLayout = Get-GroupLayout $fastVisionNames
 
 $replacementValues = @{
     '__CONTROL_BASE__' = Format-HexAddress $controlLayout.Base
@@ -343,6 +373,39 @@ $replacementValues = @{
     '__GIMBAL_POSITION_SHIFT__' = [string](Get-ByteShift $addresses['Gimbal_Motor[1].Position'])
     '__CAN_ERROR_ADDRESS__' = Format-HexAddress (Get-AlignedAddress $addresses['can_tx_enqueue_error_count'])
     '__CAN_ERROR_SHIFT__' = [string](Get-ByteShift $addresses['can_tx_enqueue_error_count'])
+
+    '__FAST_CONFIG_BASE__' = Format-HexAddress $fastConfigLayout.Base
+    '__FAST_CONFIG_COUNT__' = [string]$fastConfigLayout.Count
+    '__FAST_TARGET_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_target_position'] $fastConfigLayout.Base)
+    '__FAST_KV_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_velocity_kv'] $fastConfigLayout.Base)
+    '__FAST_TASK3_ENABLE_INDEX__' = [string](Get-WordIndex $addresses['task3_segmented_control.enabled'] $fastConfigLayout.Base)
+    '__FAST_TASK3_ENABLE_SHIFT__' = [string](Get-ByteShift $addresses['task3_segmented_control.enabled'])
+    '__FAST_SEGMENT_INDEX__' = [string](Get-WordIndex $addresses['task3_segmented_control.active_segment'] $fastConfigLayout.Base)
+    '__FAST_SEGMENT_SHIFT__' = [string](Get-ByteShift $addresses['task3_segmented_control.active_segment'])
+    '__FAST_RAW_ACCEL_INDEX__' = [string](Get-WordIndex $addresses['task3_segmented_control.chassis_acceleration_raw_rad_s2'] $fastConfigLayout.Base)
+    '__FAST_FILTERED_ACCEL_INDEX__' = [string](Get-WordIndex $addresses['task3_segmented_control.chassis_acceleration_rad_s2'] $fastConfigLayout.Base)
+    '__FAST_FF_ANGLE_INDEX__' = [string](Get-WordIndex $addresses['task3_segmented_control.acceleration_feedforward_angle_rad'] $fastConfigLayout.Base)
+
+    '__FAST_RUNTIME_BASE__' = Format-HexAddress $fastRuntimeLayout.Base
+    '__FAST_RUNTIME_COUNT__' = [string]$fastRuntimeLayout.Count
+    '__FAST_CONTROL_ENABLE_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_control_enabled'] $fastRuntimeLayout.Base)
+    '__FAST_CONTROL_ENABLE_SHIFT__' = [string](Get-ByteShift $addresses['ball_balance_control_enabled'])
+    '__FAST_RAW_VELOCITY_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_raw_velocity_pixel_s'] $fastRuntimeLayout.Base)
+    '__FAST_FILTERED_VELOCITY_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_filtered_velocity_pixel_s'] $fastRuntimeLayout.Base)
+    '__FAST_VELOCITY_FEEDBACK_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_velocity_feedback_angle_rad'] $fastRuntimeLayout.Base)
+    '__FAST_ROD_TARGET_INDEX__' = [string](Get-WordIndex $addresses['ball_balance_rod_target_angle_rad'] $fastRuntimeLayout.Base)
+    '__FAST_TIMING_ACTIVE_INDEX__' = [string](Get-WordIndex $addresses['chassis_motion_timing_active'] $fastRuntimeLayout.Base)
+    '__FAST_TIMING_ACTIVE_SHIFT__' = [string](Get-ByteShift $addresses['chassis_motion_timing_active'])
+    '__FAST_ELAPSED_INDEX__' = [string](Get-WordIndex $addresses['chassis_motion_elapsed_ms'] $fastRuntimeLayout.Base)
+
+    '__FAST_VISION_BASE__' = Format-HexAddress $fastVisionLayout.Base
+    '__FAST_VISION_COUNT__' = [string]$fastVisionLayout.Count
+    '__FAST_TICK_INDEX__' = [string](Get-WordIndex $addresses['uwTick'] $fastVisionLayout.Base)
+    '__FAST_TICK_SHIFT__' = [string](Get-ByteShift $addresses['uwTick'])
+    '__FAST_POINT_INDEX__' = [string](Get-WordIndex $addresses['point_packet.centerpoint_x'] $fastVisionLayout.Base)
+    '__FAST_POINT_SHIFT__' = [string](Get-ByteShift $addresses['point_packet.centerpoint_x'])
+    '__FAST_PACKET_INDEX__' = [string](Get-WordIndex $addresses['point_packet_rx_count'] $fastVisionLayout.Base)
+    '__FAST_PACKET_SHIFT__' = [string](Get-ByteShift $addresses['point_packet_rx_count'])
 
     '__SAMPLE_COUNT__' = [string]$SampleCount
     '__INTERVAL_MS__' = [string]$IntervalMs
@@ -496,6 +559,99 @@ proc task3_sample {sample_limit interval_ms tail_limit trigger_timeout_ms} {
 task3_sample __SAMPLE_COUNT__ __INTERVAL_MS__ __TAIL_SAMPLE_COUNT__ __TRIGGER_TIMEOUT_MS__
 '@
 
+if ($FastMode)
+{
+    # Keep the generated Tcl ASCII-only for Windows PowerShell 5 compatibility.
+    $tclTemplate = @'
+# Auto-generated fast Task3 sampler from the latest AXF.
+proc task3_fast_sample {sample_limit interval_ms tail_limit trigger_timeout_ms} {
+    init
+    echo "TASK3_SAMPLE_WAITING"
+    set waited_ms 0
+
+    # Trigger only after Task3 control and chassis motion are both active.
+    while {$waited_ms < $trigger_timeout_ms} {
+        mem2array trigger_config 32 __FAST_CONFIG_BASE__ __FAST_CONFIG_COUNT__
+        mem2array trigger_runtime 32 __FAST_RUNTIME_BASE__ __FAST_RUNTIME_COUNT__
+        set task3_enabled [expr {($trigger_config(__FAST_TASK3_ENABLE_INDEX__) >> __FAST_TASK3_ENABLE_SHIFT__) & 0xff}]
+        set motion_active [expr {($trigger_runtime(__FAST_TIMING_ACTIVE_INDEX__) >> __FAST_TIMING_ACTIVE_SHIFT__) & 0xff}]
+        if {($task3_enabled != 0) && ($motion_active != 0)} {
+            break
+        }
+
+        sleep 10
+        incr waited_ms 10
+    }
+
+    if {$waited_ms >= $trigger_timeout_ms} {
+        echo "TASK3_SAMPLE_TRIGGER_TIMEOUT"
+        shutdown
+        return
+    }
+
+    echo "TASK3_SAMPLE_TRIGGERED"
+    echo "TASK3_SAMPLE_BEGIN"
+    echo "H,index,tick,packet,point_x,elapsed_ms,motion_active,control_enabled,task3_enabled,segment,target,raw_velocity,filtered_velocity,kv,velocity_feedback,rod_target,raw_accel,filtered_accel,ff_angle"
+
+    set sample_index 0
+    set tail_count 0
+    while {$sample_index < $sample_limit} {
+        # Three grouped reads minimize wireless DAP round trips.
+        mem2array config_words 32 __FAST_CONFIG_BASE__ __FAST_CONFIG_COUNT__
+        mem2array runtime_words 32 __FAST_RUNTIME_BASE__ __FAST_RUNTIME_COUNT__
+        mem2array vision_words 32 __FAST_VISION_BASE__ __FAST_VISION_COUNT__
+
+        set point_x [expr {($vision_words(__FAST_POINT_INDEX__) >> __FAST_POINT_SHIFT__) & 0xffff}]
+        set motion_active [expr {($runtime_words(__FAST_TIMING_ACTIVE_INDEX__) >> __FAST_TIMING_ACTIVE_SHIFT__) & 0xff}]
+        set control_enabled [expr {($runtime_words(__FAST_CONTROL_ENABLE_INDEX__) >> __FAST_CONTROL_ENABLE_SHIFT__) & 0xff}]
+        set task3_enabled [expr {($config_words(__FAST_TASK3_ENABLE_INDEX__) >> __FAST_TASK3_ENABLE_SHIFT__) & 0xff}]
+        set active_segment [expr {($config_words(__FAST_SEGMENT_INDEX__) >> __FAST_SEGMENT_SHIFT__) & 0xff}]
+
+        set line [format "S,%d,%08x,%08x,%d,%08x,%d,%d,%d,%d" \
+            $sample_index \
+            [expr {$vision_words(__FAST_TICK_INDEX__) >> __FAST_TICK_SHIFT__}] \
+            [expr {$vision_words(__FAST_PACKET_INDEX__) >> __FAST_PACKET_SHIFT__}] \
+            $point_x \
+            $runtime_words(__FAST_ELAPSED_INDEX__) \
+            $motion_active \
+            $control_enabled \
+            $task3_enabled \
+            $active_segment]
+
+        append line [format ",%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x" \
+            $config_words(__FAST_TARGET_INDEX__) \
+            $runtime_words(__FAST_RAW_VELOCITY_INDEX__) \
+            $runtime_words(__FAST_FILTERED_VELOCITY_INDEX__) \
+            $config_words(__FAST_KV_INDEX__) \
+            $runtime_words(__FAST_VELOCITY_FEEDBACK_INDEX__) \
+            $runtime_words(__FAST_ROD_TARGET_INDEX__) \
+            $config_words(__FAST_RAW_ACCEL_INDEX__) \
+            $config_words(__FAST_FILTERED_ACCEL_INDEX__) \
+            $config_words(__FAST_FF_ANGLE_INDEX__)]
+
+        echo $line
+        incr sample_index
+
+        if {$motion_active == 0} {
+            incr tail_count
+            if {$tail_count >= $tail_limit} {
+                break
+            }
+        } else {
+            set tail_count 0
+        }
+
+        sleep $interval_ms
+    }
+
+    echo "TASK3_SAMPLE_END"
+    shutdown
+}
+
+task3_fast_sample __SAMPLE_COUNT__ __INTERVAL_MS__ __TAIL_SAMPLE_COUNT__ __TRIGGER_TIMEOUT_MS__
+'@
+}
+
 foreach ($replacementKey in $replacementValues.Keys)
 {
     $tclTemplate =
@@ -541,5 +697,6 @@ if ($samplerProcess.HasExited)
 
 Write-Host "Task3 sampler started. PID=$($samplerProcess.Id)."
 Write-Host 'Waiting for Task3 and chassis motion to become active.'
+Write-Host "Fast mode=$([bool]$FastMode)."
 Write-Host "Max samples=$SampleCount, interval=${IntervalMs}ms, tail samples=$TailSampleCount."
 Write-Host "Latest data log: $errorLogPath"

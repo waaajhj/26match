@@ -107,7 +107,22 @@ void task_3(void)
     Task2SegmentedControl_Disable();
     Task2_RestoreOriginalParams();
     Task3SegmentedControl_Disable();
+    /*
+     * 两轮片上采样表明-10偏向高像素而-18会过度拉向低像素；
+     * 任务3采用折中零偏-14，继续由片上数据校准且不改变任务2目标。
+     */
+    task3_segmented_control.target_offset_pixel = -14.0f;
+    // 仅底盘0~2.5 s加速阶段使用较小Kv，降低首次回摆，随后自动恢复分段Kv。
+    task3_segmented_control.startup_velocity_kv = 0.00030f;
+    // 任务3启动前馈以0.60系数退出，缩短补偿残留并抑制加速结束后的高像素侧超调。
+    task3_segmented_control.acceleration_release_filter_alpha = 0.60f;
+    // 利用低像素侧剩余余量把启动前馈限幅降到+4°，减少前馈退出后的机械储能回摆。
+    task3_segmented_control.acceleration_feedforward_limit_rad = 0.06981317f;
+    // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
+    task3_segmented_control.pitch_motor_kd = 0.1f;
     Task3SegmentedControl_Enable();
+    // 仅任务3启用内部高速记录，任务2和任务4不会写入该缓存。
+    Task3DebugRecorder_Start();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Start(
         BALL_BALANCE_DEFAULT_TARGET_POSITION,
@@ -120,6 +135,17 @@ void task_4(void)
     Task2SegmentedControl_Disable();
     Task2_RestoreOriginalParams();
     Task3SegmentedControl_Disable();
+    // 任务4暂不沿用任务3的中心零偏，避免任务3调参改变其他任务效果。
+    task3_segmented_control.target_offset_pixel = 0.0f;
+    // 任务4保持全程原近段Kv，不沿用任务3的加速阶段柔化参数。
+    task3_segmented_control.startup_velocity_kv =
+        task3_segmented_control.near.Kv;
+    // 任务4保持原前馈退出方式，避免任务3调参改变任务4效果。
+    task3_segmented_control.acceleration_release_filter_alpha = 1.0f;
+    // 任务4恢复原正向前馈限幅+5°，不沿用任务3参数。
+    task3_segmented_control.acceleration_feedforward_limit_rad = 0.08726646f;
+    // 任务4保持原MIT速度阻尼，避免任务3电机调参改变其他任务效果。
+    task3_segmented_control.pitch_motor_kd = 0.1f;
     Task3SegmentedControl_Enable();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Start(

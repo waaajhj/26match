@@ -154,7 +154,9 @@ int main(void)
 //	DM_SpeedControl(DM_Chassis1_TX_ID,MOTOR_ENABLE,-5);
 //	DM_SpeedControl(DM_Chassis2_TX_ID,MOTOR_ENABLE,5);
   DM_Pitch_ReturnZero();//电机回0
-
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET); //蜂鸣器
+  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_RESET);
 //	DMMotorZeroSet(DM_PITCH_TX_ID, MIT_MODE);
 //  DM_MitControl(DM_PITCH_TX_ID,MOTOR_ENABLE, 0, 0, 2, 0.1, 0);//电机回0
   /* USER CODE END 2 */

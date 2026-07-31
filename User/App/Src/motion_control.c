@@ -17,6 +17,10 @@
 #define speed_target 10.0f
 // 任务3规定的底盘循迹速度，集中定义便于按赛题要求确认和修改。
 #define TASK3_CHASSIS_SPEED 7.0f
+// 任务3底盘S曲线加速时间(ms)，同时决定匀速目标零偏开始生效的时刻。
+#define TASK3_CHASSIS_ACCELERATION_TIME_MS 2500U
+// 加速结束后用1 s渐入任务3目标零偏，避免目标坐标阶跃激起新的往返振荡。
+#define TASK3_TARGET_OFFSET_RAMP_TIME_MS 1000U
 
 // 球杆水平时电机的中立位置，单位rad，以达妙电机保存零点为基准。
 #define BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD 0.0f
@@ -71,6 +75,8 @@ volatile float ball_balance_filtered_velocity_pixel_s = 0.0f;
 volatile float ball_balance_velocity_kv = 0.00038f;
 volatile float ball_balance_velocity_feedback_angle_rad = 0.0f;
 volatile float ball_balance_rod_target_angle_rad = 0.0f;
+// 最近一次四连杆反解后的电机目标角，仅供任务3片上采样，单位rad。
+static volatile float ball_balance_motor_target_angle_rad = 0.0f;
 
 /*
  * 任务3五段控制采用一个全局结构体，避免分散的参数和状态变量。
@@ -82,12 +88,14 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .active_segment = TASK_3_SEGMENT_NEAR,
     .near_error_limit_pixel = 30.0f,
     .middle_error_limit_pixel = 100.0f,
-    .velocity_filter_time_constant_s = 0.040f,
+    .target_offset_pixel = 0.0f, // 由具体任务设置；任务2不读取该参数
+    .velocity_filter_time_constant_s = 0.040f, // 恢复实测更平稳的任务3速度滤波，避免速度噪声放大回摆
     .near_velocity_deadband_pixel_s = 15.0f,
+    .startup_velocity_kv = 0.00038f, // 默认与近段一致，由任务3单独设置加速阶段柔化值
     .near = {
-        .Kp = 0.00028f,
+        .Kp = 0.00028f, // 恢复实测较平稳的近段位置增益，避免中心附近反复大幅回摆
         .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
-        .Kv = 0.00038f, // 实测阻尼与响应速度的折中值
+        .Kv = 0.00038f, // 加速结束后恢复足够速度阻尼，抑制第二次及后续回摆
     },
     .low_pixel_middle = {
         .Kp = 0.00026f,
@@ -114,15 +122,21 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
         .Ki = 0.0f,
         .Kv = 0.0f,
     },
+    .pitch_motor_kp = 3.5f,
+    .pitch_motor_kd = 0.1f,
     .chassis_acceleration_raw_rad_s2 = 0.0f,
     .chassis_acceleration_rad_s2 = 0.0f,
     .acceleration_filter_alpha = 1.0f, // S曲线加速度直接参与前馈，避免滤波滞后引起反向回摆
+    .acceleration_release_filter_alpha = 1.0f, // 由具体任务设置；1表示退出时不额外滤波
     .brake_release_filter_alpha = 0.65f, // 缩短刹车前馈残留，进一步减小停车后的低像素侧超调
     .acceleration_feedforward_gain = 0.00410f, // 底盘实测补偿增益，由独立角度限幅保护
     .acceleration_feedforward_limit_rad = 0.08726646f, // 正向启动前馈限幅+5°，减小启动瞬间跳动
     .acceleration_brake_feedforward_limit_rad = 0.10471976f, // 刹车前馈角限幅-6°
     .acceleration_feedforward_angle_rad = 0.0f,
 };
+
+// 任务3调参数据保存在一个连续结构体中，便于运动结束后由DAP一次性读取。
+volatile Task3DebugRecorder_t task3_debug_recorder = {0};
 
 /*
  * 任务2从+5 cm直达-5 cm时按误差选择远段、中段和近端两侧参数。
@@ -179,6 +193,102 @@ volatile uint8_t chassis_motion_timing_active = 0U;
 volatile uint32_t chassis_motion_elapsed_ms = 0U;
 static uint32_t chassis_motion_start_ms = 0U;
 static uint32_t chassis_oled_last_refresh_ms = 0U;
+
+/**
+ * @brief 清空并启动任务3内部数据记录器。
+ * @note 调用前应确认本次即将执行任务3；函数不包含循环、延时或通信操作，
+ *       只清除计数和状态，不改变任何控制参数或电机输出。
+ */
+void Task3DebugRecorder_Start(void)
+{
+    task3_debug_recorder.sample_count = 0U;
+    task3_debug_recorder.overflow = 0U;
+    task3_debug_recorder.complete = 0U;
+    task3_debug_recorder.recording = 1U;
+}
+
+/**
+ * @brief 将一次任务3视觉闭环状态写入片上RAM连续缓存。
+ * @param current_position 当前视觉横坐标，单位pixel，来自UART4有效数据包。
+ * @param effective_target_position 本次位置环实际使用的目标，单位pixel。
+ * @param packet_count UART4累计有效包计数，用于检查视觉丢包和采样连续性。
+ * @param feedforward_angle_rad 本周期底盘加速度前馈角，单位rad。
+ * @note 本函数只由TIM4在收到视觉新包且任务3底盘正在运动时调用；不含循环、
+ *       延时和通信。缓存写满后停止记录并置complete、overflow，不影响控制输出。
+ */
+static void Task3DebugRecorder_Record(float current_position,
+                                      float effective_target_position,
+                                      uint32_t packet_count,
+                                      float feedforward_angle_rad)
+{
+    uint16_t sample_index;
+    volatile Task3DebugSample_t *sample;
+    const DM_Motor_t *pitch_motor;
+
+    if ((task3_debug_recorder.recording == 0U) ||
+        (chassis_motion_timing_active == 0U))
+    {
+        return;
+    }
+
+    sample_index = task3_debug_recorder.sample_count;
+    if (sample_index >= TASK3_DEBUG_SAMPLE_CAPACITY)
+    {
+        task3_debug_recorder.recording = 0U;
+        task3_debug_recorder.complete = 1U;
+        task3_debug_recorder.overflow = 1U;
+        return;
+    }
+
+    pitch_motor = get_gimbal_motor_measure_point(1U);
+    sample = &task3_debug_recorder.samples[sample_index];
+
+    sample->tick_ms = HAL_GetTick();
+    sample->elapsed_ms = chassis_motion_elapsed_ms;
+    sample->packet_count = packet_count;
+    sample->can_error_count = can_tx_enqueue_error_count;
+    sample->point_x = (uint16_t)current_position;
+    sample->segment = (uint8_t)task3_segmented_control.active_segment;
+    sample->motion_active = chassis_motion_timing_active;
+    sample->effective_target_pixel = effective_target_position;
+    sample->pid_kp = PID_DM_Pitch_Position.Kp;
+    sample->pid_ki = PID_DM_Pitch_Position.Ki;
+    sample->pid_kd = PID_DM_Pitch_Position.Kd;
+    sample->pid_error = PID_DM_Pitch_Position.Error;
+    sample->pid_integral_output = PID_DM_Pitch_Position.IntegralOutput;
+    sample->pid_differential = PID_DM_Pitch_Position.Differential;
+    sample->pid_output = PID_DM_Pitch_Position.Output;
+    sample->raw_velocity_pixel_s = ball_balance_raw_velocity_pixel_s;
+    sample->filtered_velocity_pixel_s = ball_balance_filtered_velocity_pixel_s;
+    sample->velocity_kv = ball_balance_velocity_kv;
+    sample->velocity_feedback_angle_rad =
+        ball_balance_velocity_feedback_angle_rad;
+    sample->rod_target_angle_rad = ball_balance_rod_target_angle_rad;
+    sample->raw_acceleration_rad_s2 =
+        task3_segmented_control.chassis_acceleration_raw_rad_s2;
+    sample->filtered_acceleration_rad_s2 =
+        task3_segmented_control.chassis_acceleration_rad_s2;
+    sample->feedforward_angle_rad = feedforward_angle_rad;
+    sample->motor_target_angle_rad = ball_balance_motor_target_angle_rad;
+    sample->motor_position_rad = pitch_motor->Position;
+    sample->motor_velocity_rad_s = pitch_motor->Omega;
+    sample->motor_torque_nm = pitch_motor->Torque;
+    sample->chassis_motor_1_velocity_rad_s = Chassis_Motor[0].Omega;
+    sample->chassis_motor_1_acceleration_rad_s2 =
+        Chassis_Motor[0].Acceleration;
+    sample->chassis_motor_2_velocity_rad_s = Chassis_Motor[1].Omega;
+    sample->chassis_motor_2_acceleration_rad_s2 =
+        Chassis_Motor[1].Acceleration;
+    // 循迹偏差及转向输出由主循环更新，辅助判断底盘转向是否引起小球慢漂。
+    sample->chassis_track_bias = bais;
+    sample->chassis_track_output = W_out;
+
+    /*
+     * 最后发布计数，保证运动结束后DAP按sample_count读取时，
+     * 每条可见样本的所有字段都已经写完。
+     */
+    task3_debug_recorder.sample_count = sample_index + 1U;
+}
 
 /**
  * @brief 从底盘开始加速时启动计时，并初始化OLED时间显示。
@@ -238,6 +348,13 @@ void ChassisMotionTime_Stop(void)
         read_time() - chassis_motion_start_ms;
     OLED_ShowNum(1, 6, chassis_motion_elapsed_ms, 5);
     chassis_motion_timing_active = 0U;
+
+    // 任务3记录器只在底盘完整运动结束后置完成，便于DAP安全地批量读取。
+    if (task3_debug_recorder.recording != 0U)
+    {
+        task3_debug_recorder.recording = 0U;
+        task3_debug_recorder.complete = 1U;
+    }
 }
 
 /**
@@ -665,10 +782,16 @@ static void Task3ChassisAccelerationUpdate(void)
         task3_segmented_control.chassis_acceleration_rad_s2;
 
     /*
-     * 只在负向刹车加速度向0恢复时使用较小系数。
-     * 启动前馈和刹车前馈的建立速度保持不变，避免破坏已经稳定的启动段。
+     * 正向加速度下降时单独缓慢退出，补偿小球相对S曲线指令的惯性滞后；
+     * 负向刹车加速度向0恢复时继续使用独立系数，两个方向互不影响。
      */
-    if ((acceleration_filtered < 0.0f) &&
+    if ((acceleration_filtered > 0.0f) &&
+        (acceleration_raw < acceleration_filtered))
+    {
+        filter_alpha =
+            task3_segmented_control.acceleration_release_filter_alpha;
+    }
+    else if ((acceleration_filtered < 0.0f) &&
         (acceleration_raw > acceleration_filtered))
     {
         filter_alpha =
@@ -846,6 +969,17 @@ static void Task3SegmentedControl_Update(float target_position,
     ki = selected_param->Ki;
     kv = selected_param->Kv;
 
+    /*
+     * 底盘S曲线加速阶段使用较小Kv，减小首次反向指令；加速结束后自动
+     * 恢复当前分段Kv，避免低阻尼延续到稳定阶段后出现第二次大回摆。
+     */
+    if ((chassis_motion_timing_active != 0U) &&
+        (chassis_motion_elapsed_ms <
+         TASK3_CHASSIS_ACCELERATION_TIME_MS))
+    {
+        kv = task3_segmented_control.startup_velocity_kv;
+    }
+
     if (selected_segment !=
         task3_segmented_control.active_segment)
     {
@@ -871,6 +1005,7 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
     float motor_angle_offset;
     float motor_target_angle;
     float motor_position_kp = 2.0f;
+    float motor_velocity_kd = 0.1f;
 
     // 位置环、速度阻尼和前馈相加后限幅，保证总请求角不超过±12°。
     if (ball_rod_target_angle > BALL_BALANCE_MAX_TILT_ANGLE_RAD)
@@ -892,6 +1027,7 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
     motor_target_angle =
         DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD +
                      motor_angle_offset);
+    ball_balance_motor_target_angle_rad = motor_target_angle;
 
     /*
      * 任务3进一步提高电机位置跟随刚度，减小底盘启停时球杆的跟随滞后；
@@ -899,7 +1035,8 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
      */
     if (task3_segmented_control.enabled != 0U)
     {
-        motor_position_kp = 3.5f;
+        motor_position_kp = task3_segmented_control.pitch_motor_kp;
+        motor_velocity_kd = task3_segmented_control.pitch_motor_kd;
     }
     else if (task2_segmented_control.enabled != 0U)
     {
@@ -908,7 +1045,7 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   motor_target_angle, 0.0f,
-                  motor_position_kp, 0.1f, 0.0f);
+                  motor_position_kp, motor_velocity_kd, 0.0f);
 }
 
 /**
@@ -946,17 +1083,18 @@ void position_control(float target_position,
 void ChassisTrack_Run(void)
 {
     ChassisMotionTime_Start();
-    S_regulate_track(0, speed_target, 800); // 加速到目标速度
+    S_regulate_track(0, speed_target+2, 800); // 加速到目标速度
     while (scan_cross_nostop(line) != 0)
     {
-        track_dynamic_Speed(speed_target);
+        track_dynamic_Speed(speed_target+2);
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-
-    // 到达路口后直接发送零速度，保留当前任务1的停车行为。
-    DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
-    DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
+    S_regulate_track(speed_target+2, 0, 1500);
+    //  // 到达路口后直接发送零速度，保留当前任务1的停车行为。
+     DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
+		delay_ms(3);
+     DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
     ChassisMotionTime_Stop();
 }
 
@@ -970,8 +1108,9 @@ void ChassisTrack2_Run(void)
     uint32_t time_on;
 
     ChassisMotionTime_Start();
-    // 1.5 s加速、4.5 s匀速、1.5 s刹车，总计7.5 s，为8 s要求留出余量。
-    S_regulate_track(0, TASK3_CHASSIS_SPEED, 1500);
+    // 2.5 s加速、8 s匀速、1.5 s刹车，总运行时间约12 s。
+    S_regulate_track(0, TASK3_CHASSIS_SPEED,
+                     TASK3_CHASSIS_ACCELERATION_TIME_MS);
     time_on = read_time();
 
     while (read_time() <= time_on + 8000)
@@ -1067,6 +1206,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
          */
         current_position = (float)point_packet.centerpoint_x;
         current_target_position = ball_balance_target_position;
+        if ((task3_segmented_control.enabled != 0U) &&
+            (chassis_motion_timing_active != 0U) &&
+            (chassis_motion_elapsed_ms >=
+             TASK3_CHASSIS_ACCELERATION_TIME_MS))
+        {
+            uint32_t target_offset_elapsed_ms =
+                chassis_motion_elapsed_ms -
+                TASK3_CHASSIS_ACCELERATION_TIME_MS;
+            float target_offset_scale =
+                (float)target_offset_elapsed_ms /
+                (float)TASK3_TARGET_OFFSET_RAMP_TIME_MS;
+
+            if (target_offset_scale > 1.0f)
+            {
+                target_offset_scale = 1.0f;
+            }
+
+            /*
+             * 任务3仅在S曲线启动加速结束后渐入目标零偏修正稳态偏置；
+             * 启动阶段仍控制真实中心227，公共目标不变且不影响任务2。
+             */
+            current_target_position +=
+                task3_segmented_control.target_offset_pixel *
+                target_offset_scale;
+        }
         current_target_tolerance_pixel =
             ball_balance_target_tolerance_pixel;
         ball_balance_last_packet_count = current_packet_count;
@@ -1074,8 +1238,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         // TIM4根据任务标志选择普通位置环或对应的分段位置环。
         if (task3_segmented_control.enabled != 0U)
         {
+            /*
+             * 任务3分段始终以物理中心坐标判断，目标零偏只修正位置环输出；
+             * 避免零偏使小球在允许范围内提前进入低Kv的高像素中段。
+             */
             Task3SegmentedControl_Update(
-                current_target_position,
+                ball_balance_target_position,
                 current_position);
         }
         else if (task2_segmented_control.enabled != 0U)
@@ -1088,6 +1256,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         position_control(current_target_position,
                          current_position,
                          feedforward_angle_rad);
+
+        // 仅任务3按视觉新包记录控制全量，任务2不写入该调试缓存。
+        if (task3_segmented_control.enabled != 0U)
+        {
+            Task3DebugRecorder_Record(current_position,
+                                      current_target_position,
+                                      current_packet_count,
+                                      feedforward_angle_rad);
+        }
 
         /*
          * 到达计数只服务于任务2的目标切换。
