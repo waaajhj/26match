@@ -38,6 +38,33 @@ typedef struct
 
 typedef enum
 {
+    TASK_2_SEGMENT_LOW_PIXEL_NEAR = 0,
+    TASK_2_SEGMENT_HIGH_PIXEL_NEAR,
+    TASK_2_SEGMENT_MIDDLE,
+    TASK_2_SEGMENT_FAR
+} Task2Segment_e;
+
+/**
+ * @brief 任务2从+5 cm直达-5 cm时使用的分段控制参数。
+ * @note 参数独立于任务3，后续可通过LinkScope单独调整，不会改变任务3效果。
+ */
+typedef struct
+{
+    volatile uint8_t enabled;
+    volatile Task2Segment_e active_segment;
+    float near_error_limit_pixel;
+    float middle_error_limit_pixel;
+    float velocity_filter_time_constant_s;
+    float near_velocity_deadband_pixel_s;
+    Task3SegmentParam_t low_pixel_near;
+    Task3SegmentParam_t high_pixel_near;
+    Task3SegmentParam_t middle;
+    Task3SegmentParam_t far;
+    Task3SegmentParam_t normal;
+} Task2SegmentedControl_t;
+
+typedef enum
+{
     TASK_3_SEGMENT_NEAR = 0,
     TASK_3_SEGMENT_LOW_PIXEL_MIDDLE,
     TASK_3_SEGMENT_LOW_PIXEL_FAR,
@@ -101,6 +128,8 @@ void BallBalanceControl_Start(float target_position,
 void BallBalanceControl_Stop(void);
 void BallBalanceControl_SetTarget(float target_position,
                                   float tolerance_pixel);
+void Task2SegmentedControl_Enable(void);
+void Task2SegmentedControl_Disable(void);
 void Task3SegmentedControl_Enable(void);
 void Task3SegmentedControl_Disable(void);
 void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2);
@@ -126,6 +155,7 @@ extern volatile float ball_balance_filtered_velocity_pixel_s;
 extern volatile float ball_balance_velocity_kv;
 extern volatile float ball_balance_velocity_feedback_angle_rad;
 extern volatile float ball_balance_rod_target_angle_rad;
+extern volatile Task2SegmentedControl_t task2_segmented_control;
 extern volatile Task3SegmentedControl_t task3_segmented_control;
 
 // 底盘实时计时状态，单位为毫秒。

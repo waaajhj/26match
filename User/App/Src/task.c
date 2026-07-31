@@ -30,6 +30,7 @@ static void Task2_RestoreOriginalKp(void)
  */
 void task_1(void)
 {
+    Task2SegmentedControl_Disable();
     Task3SegmentedControl_Disable();
     Task2_RestoreOriginalKp();
     task_2_stage = TASK_2_STAGE_IDLE;
@@ -43,6 +44,7 @@ void task_1(void)
  */
 void task_2(void)
 {
+    Task2SegmentedControl_Disable();
     Task3SegmentedControl_Disable();
     Task2_RestoreOriginalKp();
     task_2_original_kp = PID_DM_Pitch_Position.Kp;
@@ -61,7 +63,8 @@ void task_2(void)
 /**
  * @brief 在主循环中推进任务2的目标点序列。
  * @note TIM4负责更新连续到达计数；本函数无阻塞行为。
- *       切换到-5 cm后不再更换目标，TIM4持续运行闭环保持平衡。
+ *       到达+5 cm后直接切换到-5 cm，避免在中心停顿影响总时间。
+ *       切换后启用任务2专用分段PID，并持续闭环保持最终位置。
  */
 void task_2_update(void)
 {
@@ -73,15 +76,9 @@ void task_2_update(void)
     switch (task_2_stage)
     {
         case TASK_2_STAGE_TO_POSITIVE_5CM:
-            // 从中心返回-5 cm的第二阶段恢复当前原始PID参数。
+            // 直接进入-5 cm阶段，省略中心目标以缩短任务时间。
             Task2_RestoreOriginalKp();
-            BallBalanceControl_SetTarget(
-                BALL_BALANCE_DEFAULT_TARGET_POSITION,
-                BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
-            task_2_stage = TASK_2_STAGE_TO_CENTER;
-            break;
-
-        case TASK_2_STAGE_TO_CENTER:
+            Task2SegmentedControl_Enable();
             BallBalanceControl_SetTarget(
                 BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION,
                 BALL_BALANCE_FINAL_TOLERANCE_PIXEL);
@@ -102,6 +99,7 @@ void task_2_update(void)
  */
 void task_3(void)
 {
+    Task2SegmentedControl_Disable();
     Task2_RestoreOriginalKp();
     Task3SegmentedControl_Disable();
     Task3SegmentedControl_Enable();

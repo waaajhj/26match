@@ -2,13 +2,12 @@
 #define TASK_H_
 
 /**
- * @brief 任务2运行阶段，用于主循环依次切换+5 cm、0和-5 cm目标。
+ * @brief 任务2运行阶段，用于主循环依次切换+5 cm和-5 cm目标。
  */
 typedef enum
 {
     TASK_2_STAGE_IDLE = 0,
     TASK_2_STAGE_TO_POSITIVE_5CM,
-    TASK_2_STAGE_TO_CENTER,
     TASK_2_STAGE_TO_NEGATIVE_5CM
 } Task2Stage_e;
 
