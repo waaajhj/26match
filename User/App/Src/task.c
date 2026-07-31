@@ -114,12 +114,14 @@ void task_3(void)
     task3_segmented_control.target_offset_pixel = -14.0f;
     // 加速时向低像素滑动使用较小Kv，减小电机目标大幅反向。
     task3_segmented_control.startup_velocity_kv = 0.00030f;
-    // 从243 pixel提前施加高侧软边界制动，最大附加0.5°且仅在任务3前5 s生效。
+    // 高像素超过243 pixel且仍向高侧运动时，使用原0.5°软边界抑制回摆。
     task3_segmented_control.transition_high_brake_start_pixel = 243.0f;
     task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
     task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
-    // 任务3启动前馈以0.60系数退出，缩短补偿残留并抑制加速结束后的高像素侧超调。
-    task3_segmented_control.acceleration_release_filter_alpha = 0.60f;
+    // 实测0.35会因前馈残留扩大高侧回摆，恢复效果更好的0.45退出系数。
+    task3_segmented_control.acceleration_release_filter_alpha = 0.45f;
+    // 3 s缓加速后高侧仍偏大，任务3单独降低前馈增益，将启动峰值角约降至1.32°。
+    task3_segmented_control.acceleration_feedforward_gain = 0.00330f;
     // 恢复实测低像素侧保护更好的任务3正向启动前馈限幅+4.5°。
     task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;
     // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
@@ -144,10 +146,12 @@ void task_4(void)
     // 任务4保持全程原近段Kv，不沿用任务3的加速阶段柔化参数。
     task3_segmented_control.startup_velocity_kv =
         task3_segmented_control.near.Kv;
-    // 任务4关闭任务3专用的前5 s高像素软边界制动。
+    // 任务4关闭任务3专用的高像素软边界制动。
     task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0f;
     // 任务4保持原前馈退出方式，避免任务3调参改变任务4效果。
     task3_segmented_control.acceleration_release_filter_alpha = 1.0f;
+    // 任务4恢复原前馈增益，避免任务3的3 s缓加速参数影响其他任务。
+    task3_segmented_control.acceleration_feedforward_gain = 0.00410f;
     // 任务4恢复原正向前馈限幅+5°，不沿用任务3参数。
     task3_segmented_control.acceleration_feedforward_limit_rad = 0.08726646f;
     // 任务4保持原MIT速度阻尼，避免任务3电机调参改变其他任务效果。

@@ -325,25 +325,40 @@ void S_regulate_Ctl(float start_speed, float target_speed,uint32_t total_time){
 	}
 	
 }
-// S形曲线差速控制循迹函数
-// 输入：
-//    初始速度，目标速度，总需时间（ms）
-// 功能：
-//    用于平滑变速下的循迹
-void S_regulate_track(float start_speed, float target_speed, uint32_t total_time){
-	// 定义 S 型曲线的斜率参数
-    float k = 0.02; 
+/**
+ * @brief 使用可配置斜率的Logistic S曲线执行底盘循迹变速。
+ * @param start_speed 起始轮速指令，单位rad/s。
+ * @param target_speed 目标轮速指令，单位rad/s。
+ * @param total_time 变速过程持续时间，单位ms。
+ * @param slope_per_ms Logistic曲线斜率，单位1/ms，必须大于0。
+ * @note 调用前必须完成底盘电机、CAN和循迹灰度初始化。本函数在主循环中
+ *       阻塞到total_time结束，每5 ms发送一次速度指令；total_time为0或
+ *       slope_per_ms非法时不驱动变速并将任务3指令加速度清零。
+ */
+void S_regulate_track_with_slope(float start_speed, float target_speed,
+                                 uint32_t total_time, float slope_per_ms)
+{
 	uint32_t start_time;
 	uint32_t current_time;
     // 计算速度变化到一半时的时间
-    float t_mid = total_time / 2;
-	current_time = read_time();
+    float t_mid = (float)total_time / 2.0f;
+
+    if ((total_time == 0U) ||
+        (slope_per_ms != slope_per_ms) ||
+        (slope_per_ms <= 0.0f))
+    {
+        Task3ChassisCommandAccelerationSet(0.0f);
+        return;
+    }
+
 	start_time = read_time();
 	
-	while(current_time < start_time + total_time){
+	while ((uint32_t)(read_time() - start_time) < total_time){
 		current_time = read_time();
 		// 计算 S 型曲线的因子
-		float s_factor = 1 / (1 + exp(-k * ((current_time - start_time) - t_mid)));
+		float s_factor = 1.0f /
+            (1.0f + expf(-slope_per_ms *
+                         ((float)(current_time - start_time) - t_mid)));
 
 		// 计算当前速度
 		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
@@ -354,7 +369,7 @@ void S_regulate_track(float start_speed, float target_speed, uint32_t total_time
          * 正值表示向前加速，负值表示向前减速。
          */
         float command_acceleration =
-            (target_speed - start_speed) * k *
+            (target_speed - start_speed) * slope_per_ms *
             s_factor * (1.0f - s_factor) * 1000.0f;
         Task3ChassisCommandAccelerationSet(command_acceleration);
 		
@@ -368,6 +383,19 @@ void S_regulate_track(float start_speed, float target_speed, uint32_t total_time
     // S曲线结束后进入匀速段，指令加速度应立即回到0。
     Task3ChassisCommandAccelerationSet(0.0f);
 	
+}
+
+/**
+ * @brief 使用原有0.02/ms斜率执行底盘S曲线循迹变速。
+ * @param start_speed 起始轮速指令，单位rad/s。
+ * @param target_speed 目标轮速指令，单位rad/s。
+ * @param total_time 变速过程持续时间，单位ms。
+ * @note 本函数保持其他任务原有行为，内部包含同total_time时长的阻塞循环。
+ */
+void S_regulate_track(float start_speed, float target_speed, uint32_t total_time)
+{
+    S_regulate_track_with_slope(start_speed, target_speed,
+                                total_time, 0.02f);
 }
 // S形曲线差速控制循迹函数
 // 输入：

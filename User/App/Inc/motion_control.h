@@ -88,9 +88,9 @@ typedef struct
     float velocity_filter_time_constant_s;       // 任务3视觉速度滤波时间常数
     float near_velocity_deadband_pixel_s;        // 近段速度反馈死区(pixel/s)
     float startup_velocity_kv;                   // 加速阶段向低像素滑动时的速度反馈增益(rad/(pixel/s))
-    float transition_high_brake_start_pixel;     // 前5 s高像素软边界制动起点(pixel)
-    float transition_high_brake_gain_rad_per_pixel; // 超过软边界后的附加制动增益(rad/pixel)
-    float transition_high_brake_limit_rad;       // 前5 s高像素附加制动角限幅(rad)
+    float transition_high_brake_start_pixel;     // 加速及目标渐入阶段的高像素软边界起点(pixel)
+    float transition_high_brake_gain_rad_per_pixel; // 超过高像素软边界后的附加制动增益(rad/pixel)
+    float transition_high_brake_limit_rad;       // 高像素软边界附加制动角限幅(rad)
     Task3SegmentParam_t near;
     Task3SegmentParam_t low_pixel_middle;
     Task3SegmentParam_t low_pixel_far;
@@ -110,7 +110,7 @@ typedef struct
     volatile float acceleration_feedforward_angle_rad;
 } Task3SegmentedControl_t;
 
-// 任务3约12 s运行、视觉约42 Hz，600个样本可覆盖完整运动并保留余量。
+// 任务3约12.5 s运行、视觉约42 Hz，600个样本可覆盖完整运动并保留余量。
 #define TASK3_DEBUG_SAMPLE_CAPACITY 600U
 
 /**

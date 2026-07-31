@@ -68,6 +68,8 @@ extern float target_bais;
 //=====================================================================================
 void S_regulate_Ctl(float start_speed, float target_speed,uint32_t total_time);					//S形曲线差速控制电机函数
 void S_regulate_track(float start_speed, float target_speed, uint32_t total_time);
+void S_regulate_track_with_slope(float start_speed, float target_speed,
+                                 uint32_t total_time, float slope_per_ms);
 void S_regulate_track_left(float start_speed, float target_speed, uint32_t total_time);//S形曲线差速控制循迹函数
 void S_regulate_track_right(float start_speed, float target_speed, uint32_t total_time);
 void S_regulate_walkspin(float start_speed, float target_speed,float angle,uint32_t total_time);	//S形曲线差速控制角度环函数

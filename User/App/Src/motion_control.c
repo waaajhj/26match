@@ -16,11 +16,12 @@
 // 底盘循迹目标速度，单位沿用当前达妙底盘速度接口。
 #define speed_target 10.0f
 // 任务3规定的底盘循迹速度，集中定义便于按赛题要求确认和修改。
-#define TASK3_CHASSIS_SPEED 7.0f
-// 任务3底盘S曲线加速时间(ms)，用于加速阶段速度反馈策略切换。
-#define TASK3_CHASSIS_ACCELERATION_TIME_MS 2500U
-// 底盘加速结束后开始介入稳态零偏，用于抑制2.5~4 s的第二次高像素回摆。
-#define TASK3_TARGET_OFFSET_START_TIME_MS 2500U
+#define TASK3_CHASSIS_SPEED 8.5f
+// 任务3采用3 s缓加速，并使用独立较小斜率降低实际加速度和运行离散性。
+#define TASK3_CHASSIS_ACCELERATION_TIME_MS 3000U
+#define TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.003f
+// 底盘加速结束后再介入稳态零偏，避免加速补偿和目标迁移同时作用。
+#define TASK3_TARGET_OFFSET_START_TIME_MS TASK3_CHASSIS_ACCELERATION_TIME_MS
 // 用2.5 s缓慢渐入目标零偏，兼顾高像素回摆与低像素过度纠正。
 #define TASK3_TARGET_OFFSET_RAMP_TIME_MS 2500U
 
@@ -974,10 +975,7 @@ static void Task3SegmentedControl_Update(float target_position,
     ki = selected_param->Ki;
     kv = selected_param->Kv;
 
-    /*
-     * 底盘加速阶段向低像素滑动时使用较小Kv，减小电机目标大幅反向；
-     * 前5 s向高像素回摆时使用独立的稍大Kv，提前增强高侧回摆制动。
-     */
+    // 底盘加速阶段向低像素滑动时使用较小Kv，减小电机目标大幅反向。
     if ((chassis_motion_timing_active != 0U) &&
         (chassis_motion_elapsed_ms <
          TASK3_CHASSIS_ACCELERATION_TIME_MS) &&
@@ -1078,8 +1076,8 @@ void position_control(float target_position,
     float ball_rod_target_angle;
 
     /*
-     * 仅在任务3前5 s、小球已经接近高像素边界且仍向高像素运动时，
-     * 增加一个平滑的负球杆角。速度反向后立即退出，避免继续把小球推向低侧。
+     * 仅在任务3加速及目标渐入阶段、小球接近高像素边界且仍向高像素运动时，
+     * 增加平滑负球杆角。速度反向后立即退出，避免继续把小球推向低侧。
      */
     if ((task3_segmented_control.enabled != 0U) &&
         (chassis_motion_timing_active != 0U) &&
@@ -1146,12 +1144,14 @@ void ChassisTrack2_Run(void)
     uint32_t time_on;
 
     ChassisMotionTime_Start();
-    // 2.5 s加速、8 s匀速、1.5 s刹车，总运行时间约12 s。
-    S_regulate_track(0, TASK3_CHASSIS_SPEED,
-                     TASK3_CHASSIS_ACCELERATION_TIME_MS);
+    // 任务3使用3 s、0.004/ms的独立缓S曲线；其他任务仍保持原0.02/ms斜率。
+    S_regulate_track_with_slope(
+        0.0f, TASK3_CHASSIS_SPEED,
+        TASK3_CHASSIS_ACCELERATION_TIME_MS,
+        TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS);
     time_on = read_time();
 
-    while (read_time() <= time_on + 8000)
+    while (read_time() <= time_on + 5000)
     {
         track_dynamic_Speed(TASK3_CHASSIS_SPEED);
         ChassisMotionTime_Update();
@@ -1263,7 +1263,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
             /*
              * 任务3在底盘加速结束后缓慢渐入目标零偏修正稳态偏置；
-             * 较长渐入时间避免2.5~4 s过渡阶段因目标变化过快产生低侧过冲。
+             * 2.5 s渐入时间避免3~5.5 s过渡阶段因目标变化过快产生低侧过冲。
              */
             current_target_position +=
                 task3_segmented_control.target_offset_pixel *
