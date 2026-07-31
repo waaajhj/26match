@@ -114,8 +114,8 @@ void task_3(void)
     task3_segmented_control.target_offset_pixel = -14.0f;
     // 加速时向低像素滑动使用较小Kv，减小电机目标大幅反向。
     task3_segmented_control.startup_velocity_kv = 0.00030f;
-    // 从245 pixel开始施加高侧软边界制动，最大附加0.5°且仅在前5 s生效。
-    task3_segmented_control.transition_high_brake_start_pixel = 245.0f;
+    // 从243 pixel提前施加高侧软边界制动，最大附加0.5°且仅在任务3前5 s生效。
+    task3_segmented_control.transition_high_brake_start_pixel = 243.0f;
     task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
     task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
     // 任务3启动前馈以0.60系数退出，缩短补偿残留并抑制加速结束后的高像素侧超调。
