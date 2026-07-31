@@ -30,6 +30,7 @@ static void Task2_RestoreOriginalKp(void)
  */
 void task_1(void)
 {
+    Task3SegmentedControl_Disable();
     Task2_RestoreOriginalKp();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Stop();
@@ -42,6 +43,7 @@ void task_1(void)
  */
 void task_2(void)
 {
+    Task3SegmentedControl_Disable();
     Task2_RestoreOriginalKp();
     task_2_original_kp = PID_DM_Pitch_Position.Kp;
     PID_DM_Pitch_Position.Kp =
@@ -101,10 +103,12 @@ void task_2_update(void)
 void task_3(void)
 {
     Task2_RestoreOriginalKp();
+    Task3SegmentedControl_Disable();
+    Task3SegmentedControl_Enable();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Start(
         BALL_BALANCE_DEFAULT_TARGET_POSITION,
-        BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
+        0.0f); // 任务3无到达阈值，TIM4始终执行五段闭环。
     // ChassisTrack2_Run();
     serial_screen_task = SERIAL_SCREEN_TASK_NONE;
 }

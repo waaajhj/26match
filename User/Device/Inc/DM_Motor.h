@@ -69,7 +69,7 @@ typedef struct
     float LastPosTemp; // 上次电机位置(P_MIN,P_MAX)
     float LastOmega;   // 电机输出轴上次角速度(rad/s)
     float LastAccelerationOmega;    // 上次参与加速度计算的角速度(rad/s)
-    uint32_t LastFeedbackTime;       // 上次加速度采样时刻(ms)，来自HAL系统时基
+    volatile uint32_t LastFeedbackTime; // CAN中断更新的上次加速度采样时刻(ms)
     /* 解析后的反馈值 */
     float Position;              // 输出轴角度(-PI,PI)(rad)
     float Omega;                 // 电机输出轴角速度(rad/s)

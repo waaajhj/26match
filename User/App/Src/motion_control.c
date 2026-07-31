@@ -25,10 +25,12 @@
 /*
  * 视觉速度反馈参数。
  * 速度单位为pixel/s，反馈输出单位为rad；正速度表示小球坐标向右增大。
- * 60 ms一阶低通用于削弱视觉坐标抖动，速度反馈最多贡献±2°。
+ * 60 ms一阶低通用于削弱视觉坐标抖动。
+ * 任务2保持原来的±2°限幅，任务3单独使用±4°限幅。
  */
 #define BALL_VELOCITY_FILTER_TIME_CONSTANT_S 0.060f
-#define BALL_VELOCITY_FEEDBACK_LIMIT_RAD 0.03490659f
+#define BALL_VELOCITY_FEEDBACK_TASK2_LIMIT_RAD 0.03490659f
+#define BALL_VELOCITY_FEEDBACK_TASK3_LIMIT_RAD 0.06981317f
 #define BALL_VELOCITY_MAX_VALID_INTERVAL_MS 100U
 
 /*
@@ -66,6 +68,56 @@ volatile float ball_balance_filtered_velocity_pixel_s = 0.0f;
 volatile float ball_balance_velocity_kv = 0.00038f;
 volatile float ball_balance_velocity_feedback_angle_rad = 0.0f;
 volatile float ball_balance_rod_target_angle_rad = 0.0f;
+
+/*
+ * 任务3五段控制采用一个全局结构体，避免分散的参数和状态变量。
+ * 近段由两侧共用，中段和远段按当前像素相对目标像素的方向分别调参。
+ * 底盘正向加速时小球趋向低像素侧，因此前馈使用正增益产生正球杆角。
+ */
+volatile Task3SegmentedControl_t task3_segmented_control = {
+    .enabled = 0U,
+    .active_segment = TASK_3_SEGMENT_NEAR,
+    .near_error_limit_pixel = 30.0f,
+    .middle_error_limit_pixel = 100.0f,
+    .velocity_filter_time_constant_s = 0.040f,
+    .near_velocity_deadband_pixel_s = 15.0f,
+    .near = {
+        .Kp = 0.00020f,
+        .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
+        .Kv = 0.00035f, // 降低延迟速度反馈的能量注入，利用机械阻尼缩短振荡
+    },
+    .low_pixel_middle = {
+        .Kp = 0.00026f,
+        .Ki = 0.0000000f,
+        .Kv = 0.00030f,
+    },
+    .low_pixel_far = {
+        .Kp = 0.00028f,
+        .Ki = 0.0f,
+        .Kv = 0.00024f,
+    },
+    .high_pixel_middle = {
+        .Kp = 0.00026f,
+        .Ki = 0.0f,
+        .Kv = 0.00024f,
+    },
+    .high_pixel_far = {
+        .Kp = 0.00028f,
+        .Ki = 0.0f,
+        .Kv = 0.00020f,
+    },
+    .normal = {
+        .Kp = 0.0f,
+        .Ki = 0.0f,
+        .Kv = 0.0f,
+    },
+    .chassis_acceleration_raw_rad_s2 = 0.0f,
+    .chassis_acceleration_rad_s2 = 0.0f,
+    .acceleration_filter_alpha = 1.0f,
+    .acceleration_feedforward_gain = 0.00205f, // S曲线加速度前馈增大至原来的3倍
+    .acceleration_feedforward_limit_rad = 0.08726646f, // 前馈球杆角限幅±5°
+    .acceleration_feedforward_angle_rad = 0.0f,
+};
 
 // TIM4每次只处理一帧新视觉数据，避免对同一坐标重复执行位置环计算。
 static uint32_t ball_balance_last_packet_count = 0U;
@@ -215,6 +267,56 @@ void BallBalanceControl_SetTarget(float target_position,
 }
 
 /**
+ * @brief 启用任务3五段控制并保存当前普通位置环参数。
+ * @note 本函数由任务3在主循环调用，不包含循环和通信操作。
+ */
+void Task3SegmentedControl_Enable(void)
+{
+    if (task3_segmented_control.enabled == 0U)
+    {
+        task3_segmented_control.normal.Kp =
+            PID_DM_Pitch_Position.Kp;
+        task3_segmented_control.normal.Ki =
+            PID_DM_Pitch_Position.Ki;
+        task3_segmented_control.normal.Kv =
+            ball_balance_velocity_kv;
+    }
+
+    task3_segmented_control.active_segment =
+        TASK_3_SEGMENT_NEAR;
+    task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
+    task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
+    task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
+    task3_segmented_control.enabled = 1U;
+}
+
+/**
+ * @brief 退出任务3五段控制并恢复启用前的普通位置环参数。
+ */
+void Task3SegmentedControl_Disable(void)
+{
+    uint8_t was_enabled = task3_segmented_control.enabled;
+
+    // 先清任务标志，防止TIM4在恢复普通参数期间再次应用五段参数。
+    task3_segmented_control.enabled = 0U;
+    if (was_enabled != 0U)
+    {
+        PID_DM_Pitch_Position.Kp =
+            task3_segmented_control.normal.Kp;
+        PID_DM_Pitch_Position.Ki =
+            task3_segmented_control.normal.Ki;
+        ball_balance_velocity_kv =
+            task3_segmented_control.normal.Kv;
+    }
+
+    task3_segmented_control.active_segment =
+        TASK_3_SEGMENT_NEAR;
+    task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
+    task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
+    task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
+}
+
+/**
  * @brief 控制达妙Pitch电机返回电机零点。
  * @note 本函数会阻塞，直至位置连续10次位于[-0.05, 0.05] rad。
  *       未收到有效Pitch反馈时不会退出，并会每10 ms重发一次回零命令。
@@ -329,6 +431,9 @@ static float BallVelocityFeedbackUpdate(float current_position)
     uint32_t interval_ms;
     float interval_s;
     float filter_alpha;
+    float filter_time_constant_s =
+        BALL_VELOCITY_FILTER_TIME_CONSTANT_S;
+    float feedback_limit_rad;
     float feedback_angle;
 
     if (ball_balance_velocity_initialized == 0U)
@@ -356,10 +461,21 @@ static float BallVelocityFeedbackUpdate(float current_position)
             (current_position - ball_balance_velocity_last_position) /
             interval_s;
 
+        // 任务3使用更短的滤波时间常数，减小反向时的速度相位滞后。
+        if (task3_segmented_control.enabled != 0U)
+        {
+            filter_time_constant_s =
+                task3_segmented_control.velocity_filter_time_constant_s;
+            if (filter_time_constant_s < 0.0f)
+            {
+                filter_time_constant_s = 0.0f;
+            }
+        }
+
         // alpha随实际视觉帧间隔变化，帧率波动时滤波强度更稳定。
         filter_alpha =
             interval_s /
-            (BALL_VELOCITY_FILTER_TIME_CONSTANT_S + interval_s);
+            (filter_time_constant_s + interval_s);
         ball_balance_filtered_velocity_pixel_s +=
             filter_alpha *
             (ball_balance_raw_velocity_pixel_s -
@@ -369,44 +485,206 @@ static float BallVelocityFeedbackUpdate(float current_position)
     ball_balance_velocity_last_position = current_position;
     ball_balance_velocity_last_tick_ms = now_ms;
 
-    // 对测量速度取负反馈，避免目标位置变化产生微分冲击。
-    feedback_angle =
-        -ball_balance_velocity_kv *
-        ball_balance_filtered_velocity_pixel_s;
-    if (feedback_angle > BALL_VELOCITY_FEEDBACK_LIMIT_RAD)
+    /*
+     * 任务3近段对很小的滤波速度关闭反馈，避免静止时1像素跳变造成
+     * 球杆持续抖动；超过死区后仍使用原Kv进行动态制动。
+     */
+    if ((task3_segmented_control.enabled != 0U) &&
+        (task3_segmented_control.active_segment ==
+         TASK_3_SEGMENT_NEAR) &&
+        (fabsf(ball_balance_filtered_velocity_pixel_s) <
+         task3_segmented_control.near_velocity_deadband_pixel_s))
     {
-        feedback_angle = BALL_VELOCITY_FEEDBACK_LIMIT_RAD;
+        feedback_angle = 0.0f;
     }
-    else if (feedback_angle < -BALL_VELOCITY_FEEDBACK_LIMIT_RAD)
+    else
     {
-        feedback_angle = -BALL_VELOCITY_FEEDBACK_LIMIT_RAD;
+        // 对测量速度取负反馈，避免目标位置变化产生微分冲击。
+        feedback_angle =
+            -ball_balance_velocity_kv *
+            ball_balance_filtered_velocity_pixel_s;
+    }
+
+    // 任务3启用时使用独立的大限幅；任务2保持原来的±2°限幅。
+    if (task3_segmented_control.enabled != 0U)
+    {
+        feedback_limit_rad =
+            BALL_VELOCITY_FEEDBACK_TASK3_LIMIT_RAD;
+    }
+    else
+    {
+        feedback_limit_rad =
+            BALL_VELOCITY_FEEDBACK_TASK2_LIMIT_RAD;
+    }
+
+    if (feedback_angle > feedback_limit_rad)
+    {
+        feedback_angle = feedback_limit_rad;
+    }
+    else if (feedback_angle < -feedback_limit_rad)
+    {
+        feedback_angle = -feedback_limit_rad;
     }
 
     return feedback_angle;
 }
 
 /**
- * @brief 根据球的位置误差计算达妙Pitch电机的目标角度。
- * @param target_position 球的目标位置，单位pixel。
- * @param current_position 球的当前位置，单位pixel。
- * @note 调用前必须完成PID、CAN初始化、电机使能和回零。
- *       本函数每次调用发送一帧MIT位置控制指令，不包含循环或延时。
+ * @brief 保存S曲线给出的底盘前向指令加速度。
+ * @param acceleration_rad_s2 底盘目标速度的变化率，单位rad/s^2；
+ *        向前加速为正，向前减速为负。
+ * @note 本函数由底盘S曲线在主循环调用；32位float写入在Cortex-M4上是原子的。
  */
-void position_control(float target_position, float current_position)
+void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2)
 {
-    float position_loop_output =
-        PID_Position(&PID_DM_Pitch_Position,
-                     current_position,
-                     target_position,
-                     BALL_BALANCE_MAX_TILT_ANGLE_RAD);
-    float velocity_feedback_angle =
-        BallVelocityFeedbackUpdate(current_position);
-    float ball_rod_target_angle =
-        position_loop_output + velocity_feedback_angle;
+    task3_segmented_control.chassis_acceleration_raw_rad_s2 =
+        acceleration_rad_s2;
+}
+
+/**
+ * @brief 以TIM4固定周期更新任务3使用的底盘指令加速度。
+ * @note S曲线加速度本身连续，默认alpha为1直接使用；保留滤波接口便于调试。
+ */
+static void Task3ChassisAccelerationUpdate(void)
+{
+    float filter_alpha =
+        task3_segmented_control.acceleration_filter_alpha;
+
+    // 限制滤波系数，防止LinkScope在线调参时输入无效范围。
+    if (filter_alpha < 0.0f)
+    {
+        filter_alpha = 0.0f;
+    }
+    else if (filter_alpha > 1.0f)
+    {
+        filter_alpha = 1.0f;
+    }
+
+    task3_segmented_control.chassis_acceleration_rad_s2 +=
+        filter_alpha *
+        (task3_segmented_control.chassis_acceleration_raw_rad_s2 -
+         task3_segmented_control.chassis_acceleration_rad_s2);
+}
+
+/**
+ * @brief 根据滤波后的底盘加速度计算并限制任务3前馈球杆角。
+ * @retval 加速度前馈球杆角，单位rad。
+ */
+static float Task3AccelerationFeedforwardUpdate(void)
+{
+    float feedforward_angle =
+        task3_segmented_control.chassis_acceleration_rad_s2 *
+        task3_segmented_control.acceleration_feedforward_gain;
+
+    if (feedforward_angle >
+        task3_segmented_control.acceleration_feedforward_limit_rad)
+    {
+        feedforward_angle =
+            task3_segmented_control.acceleration_feedforward_limit_rad;
+    }
+    else if (feedforward_angle <
+             -task3_segmented_control.acceleration_feedforward_limit_rad)
+    {
+        feedforward_angle =
+            -task3_segmented_control.acceleration_feedforward_limit_rad;
+    }
+
+    task3_segmented_control.acceleration_feedforward_angle_rad =
+        feedforward_angle;
+    return feedforward_angle;
+}
+
+/**
+ * @brief 根据任务3的位置误差和像素方向选择五段位置及速度反馈参数。
+ * @param target_position 小球目标位置，单位pixel。
+ * @param current_position 小球当前位置，单位pixel。
+ * @note 本函数仅由TIM4在任务3标志有效时调用；跨段时清除积分，
+ *       防止不同Ki对应的历史积分在参数切换瞬间造成输出跳变。
+ */
+static void Task3SegmentedControl_Update(float target_position,
+                                         float current_position)
+{
+    float absolute_error =
+        fabsf(target_position - current_position);
+    Task3Segment_e selected_segment;
+    const volatile Task3SegmentParam_t *selected_param;
+    float kp;
+    float ki;
+    float kv;
+
+    if (absolute_error <=
+        task3_segmented_control.near_error_limit_pixel)
+    {
+        selected_segment = TASK_3_SEGMENT_NEAR;
+        selected_param = &task3_segmented_control.near;
+    }
+    else if (current_position < target_position)
+    {
+        if (absolute_error <=
+            task3_segmented_control.middle_error_limit_pixel)
+        {
+            selected_segment =
+                TASK_3_SEGMENT_LOW_PIXEL_MIDDLE;
+            selected_param =
+                &task3_segmented_control.low_pixel_middle;
+        }
+        else
+        {
+            selected_segment =
+                TASK_3_SEGMENT_LOW_PIXEL_FAR;
+            selected_param =
+                &task3_segmented_control.low_pixel_far;
+        }
+    }
+    else
+    {
+        if (absolute_error <=
+            task3_segmented_control.middle_error_limit_pixel)
+        {
+            selected_segment =
+                TASK_3_SEGMENT_HIGH_PIXEL_MIDDLE;
+            selected_param =
+                &task3_segmented_control.high_pixel_middle;
+        }
+        else
+        {
+            selected_segment =
+                TASK_3_SEGMENT_HIGH_PIXEL_FAR;
+            selected_param =
+                &task3_segmented_control.high_pixel_far;
+        }
+    }
+
+    kp = selected_param->Kp;
+    ki = selected_param->Ki;
+    kv = selected_param->Kv;
+
+    if (selected_segment !=
+        task3_segmented_control.active_segment)
+    {
+        // 跨段时丢弃上一段积分，避免参数切换后积分贡献突变。
+        PID_DM_Pitch_Position.Integral = 0.0f;
+        PID_DM_Pitch_Position.IntegralOutput = 0.0f;
+        task3_segmented_control.active_segment = selected_segment;
+    }
+
+    PID_DM_Pitch_Position.Kp = kp;
+    PID_DM_Pitch_Position.Ki = ki;
+    ball_balance_velocity_kv = kv;
+}
+
+/**
+ * @brief 对球杆目标角限幅、执行四连杆反解并发送电机指令。
+ * @param ball_rod_target_angle 球杆相对水平面的目标角，单位rad。
+ * @note 本函数不更新位置PID和视觉速度反馈，可由TIM4使用上一次视觉控制量
+ *       叠加实时加速度前馈后重复发送。
+ */
+static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
+{
     float motor_angle_offset;
     float motor_target_angle;
 
-    // 位置环与速度阻尼相加后再次限幅，保证球杆总请求角度不超过±12°。
+    // 位置环、速度阻尼和前馈相加后限幅，保证总请求角不超过±12°。
     if (ball_rod_target_angle > BALL_BALANCE_MAX_TILT_ANGLE_RAD)
     {
         ball_rod_target_angle = BALL_BALANCE_MAX_TILT_ANGLE_RAD;
@@ -416,13 +694,12 @@ void position_control(float target_position, float current_position)
         ball_rod_target_angle = -BALL_BALANCE_MAX_TILT_ANGLE_RAD;
     }
 
-    ball_balance_velocity_feedback_angle_rad = velocity_feedback_angle;
     ball_balance_rod_target_angle_rad = ball_rod_target_angle;
     motor_angle_offset = BallRodAngleToMotorAngle(ball_rod_target_angle);
 
     /*
-     * PID输出表示BC球杆目标角度；经四杆反解得到AD电机角度后，
-     * 再叠加电机零点并通过达妙绝对电控限位[-1.1, 0.65] rad。
+     * 球杆目标角经四杆反解得到AD电机角度，再叠加电机零点，
+     * 最后通过达妙绝对电控限位[-1.1, 0.65] rad。
      */
     motor_target_angle =
         DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD +
@@ -430,6 +707,33 @@ void position_control(float target_position, float current_position)
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   motor_target_angle, 0.0f, 2.0f, 0.1f, 0.0f);
+}
+
+/**
+ * @brief 根据球的位置误差计算达妙Pitch电机的目标角度。
+ * @param target_position 球的目标位置，单位pixel。
+ * @param current_position 球的当前位置，单位pixel。
+ * @param feedforward_angle_rad 额外前馈球杆角，单位rad。
+ * @note 调用前必须完成PID、CAN初始化、电机使能和回零。
+ *       本函数每次调用发送一帧MIT位置控制指令，不包含循环或延时。
+ */
+void position_control(float target_position,
+                      float current_position,
+                      float feedforward_angle_rad)
+{
+    float position_loop_output =
+        PID_Position(&PID_DM_Pitch_Position,
+                     current_position,
+                     target_position,
+                     BALL_BALANCE_MAX_TILT_ANGLE_RAD);
+    float velocity_feedback_angle =
+        BallVelocityFeedbackUpdate(current_position);
+    float ball_rod_target_angle =
+        position_loop_output + velocity_feedback_angle +
+        feedforward_angle_rad;
+
+    ball_balance_velocity_feedback_angle_rad = velocity_feedback_angle;
+    BallBalanceRodAngleCommandSend(ball_rod_target_angle);
 }
 
 /**
@@ -464,23 +768,27 @@ void ChassisTrack2_Run(void)
     uint32_t time_on;
 
     ChassisMotionTime_Start();
-    S_regulate_track(0, speed_target, 800); // 加速到目标速度
+    S_regulate_track(0, speed_target-5, 1500); // 加速到目标速度
     time_on = read_time();
 
-    while (read_time() <= time_on + 1000)
+    while (read_time() <= time_on + 8000)
     {
-        track_dynamic_Speed(speed_target);
+        track_dynamic_Speed(speed_target-5);
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-
+	S_regulate_track(0, speed_target-5, 1500);
+    DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
+		delay_ms(3);
+    DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
     // S_regulate_Ctl(speed_target, 0.0f, 300); // 减速停车
     ChassisMotionTime_Stop();
 }
 
 /**
  * @brief HAL定时器周期回调。
- * @note TIM3每10 ms查询一次灰度模块；TIM4只在收到新视觉帧时更新球杆控制。
+ * @note TIM3每10 ms查询一次灰度模块；TIM4每20 ms更新任务3加速度前馈，
+ *       位置PID和视觉速度反馈仍只在收到新视觉帧时更新。
  *       回调中不进行OLED刷新，避免软件I2C阻塞中断。
  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -497,6 +805,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         float current_position;
         float current_target_position;
         float current_target_tolerance_pixel;
+        float feedforward_angle_rad = 0.0f;
 
         if (ball_balance_control_enabled == 0U)
         {
@@ -504,10 +813,28 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         }
 
         current_packet_count = point_packet_rx_count;
+
+        /*
+         * 任务3的加速度前馈固定以TIM4的50 Hz周期更新，与视觉帧率解耦。
+         * 没有视觉新帧时复用上一次位置环和速度反馈，只刷新前馈角。
+         */
+        if (task3_segmented_control.enabled != 0U)
+        {
+            Task3ChassisAccelerationUpdate();
+            feedforward_angle_rad =
+                Task3AccelerationFeedforwardUpdate();
+        }
+
         if ((current_packet_count == 0U) ||
             (current_packet_count == ball_balance_last_packet_count))
         {
-            // 没有新视觉数据时保持上一条电机指令，不重复计算位置环。
+            if (task3_segmented_control.enabled != 0U)
+            {
+                BallBalanceRodAngleCommandSend(
+                    PID_DM_Pitch_Position.Output +
+                    ball_balance_velocity_feedback_angle_rad +
+                    feedforward_angle_rad);
+            }
             return;
         }
 
@@ -521,22 +848,40 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             ball_balance_target_tolerance_pixel;
         ball_balance_last_packet_count = current_packet_count;
 
-        position_control(current_target_position, current_position);
-
-        // 连续计数离开当前目标对应的像素阈值后立即清零。
-        if ((current_position >=
-             current_target_position - current_target_tolerance_pixel) &&
-            (current_position <=
-             current_target_position + current_target_tolerance_pixel))
+        // TIM4根据任务3标志选择普通位置环或五段位置环。
+        if (task3_segmented_control.enabled != 0U)
         {
-            if (ball_balance_target_in_range_count < 255U)
-            {
-                ball_balance_target_in_range_count++;
-            }
+            Task3SegmentedControl_Update(
+                current_target_position,
+                current_position);
         }
-        else
+
+        position_control(current_target_position,
+                         current_position,
+                         feedforward_angle_rad);
+
+        /*
+         * 到达计数只服务于任务2的目标切换。
+         * 任务3的像素分段仅选择参数，任何误差下都持续执行闭环。
+         */
+        if (task3_segmented_control.enabled == 0U)
         {
-            ball_balance_target_in_range_count = 0U;
+            if ((current_position >=
+                 current_target_position -
+                 current_target_tolerance_pixel) &&
+                (current_position <=
+                 current_target_position +
+                 current_target_tolerance_pixel))
+            {
+                if (ball_balance_target_in_range_count < 255U)
+                {
+                    ball_balance_target_in_range_count++;
+                }
+            }
+            else
+            {
+                ball_balance_target_in_range_count = 0U;
+            }
         }
 
     }

@@ -347,6 +347,16 @@ void S_regulate_track(float start_speed, float target_speed, uint32_t total_time
 
 		// 计算当前速度
 		float current_speed = start_speed + (target_speed - start_speed) * s_factor;
+
+        /*
+         * Logistic S曲线对时间求导得到目标加速度。
+         * k的时间单位为1/ms，因此乘1000转换为rad/s^2；
+         * 正值表示向前加速，负值表示向前减速。
+         */
+        float command_acceleration =
+            (target_speed - start_speed) * k *
+            s_factor * (1.0f - s_factor) * 1000.0f;
+        Task3ChassisCommandAccelerationSet(command_acceleration);
 		
 		track_dynamic_Speed(current_speed);
 		ChassisMotionTime_Update();
@@ -354,6 +364,9 @@ void S_regulate_track(float start_speed, float target_speed, uint32_t total_time
 		delay_ms(5);
 		//OLED_ShowNum(0,0,current_speed,4);
 	}
+
+    // S曲线结束后进入匀速段，指令加速度应立即回到0。
+    Task3ChassisCommandAccelerationSet(0.0f);
 	
 }
 // S形曲线差速控制循迹函数

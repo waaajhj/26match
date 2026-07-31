@@ -36,7 +36,7 @@ PID_Position_Struct PID_sensor3;
 PID_Position_Struct PID_DM_Pitch_Position;
 PID_Position_Struct PID_DM_Pitch_Position2;
 // 球杆位置环的积分项最多贡献±3°，单位rad。
-#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.10235988f
+#define DM_PITCH_INTEGRAL_OUTPUT_LIMIT_RAD 0.05235988f
 
 /**
  * @brief 初始化一个经典位置式 PID 实例。
