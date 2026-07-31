@@ -116,8 +116,8 @@ void task_3(void)
     task3_segmented_control.startup_velocity_kv = 0.00030f;
     // 任务3启动前馈以0.60系数退出，缩短补偿残留并抑制加速结束后的高像素侧超调。
     task3_segmented_control.acceleration_release_filter_alpha = 0.60f;
-    // 利用低像素侧剩余余量把启动前馈限幅降到+4°，减少前馈退出后的机械储能回摆。
-    task3_segmented_control.acceleration_feedforward_limit_rad = 0.06981317f;
+    // 保存本次实测停稳版本的任务3正向启动前馈限幅+4.5°。
+    task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;
     // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
     task3_segmented_control.pitch_motor_kd = 0.1f;
     Task3SegmentedControl_Enable();

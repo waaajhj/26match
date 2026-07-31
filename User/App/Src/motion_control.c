@@ -95,7 +95,7 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .near = {
         .Kp = 0.00028f, // 恢复实测较平稳的近段位置增益，避免中心附近反复大幅回摆
         .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
-        .Kv = 0.00038f, // 加速结束后恢复足够速度阻尼，抑制第二次及后续回摆
+        .Kv = 0.00030f, // 保存本次实测停车后能够稳定的任务3速度反馈增益
     },
     .low_pixel_middle = {
         .Kp = 0.00026f,
@@ -970,8 +970,8 @@ static void Task3SegmentedControl_Update(float target_position,
     kv = selected_param->Kv;
 
     /*
-     * 底盘S曲线加速阶段使用较小Kv，减小首次反向指令；加速结束后自动
-     * 恢复当前分段Kv，避免低阻尼延续到稳定阶段后出现第二次大回摆。
+     * 支持底盘S曲线加速阶段单独设置Kv；当前实测停稳版本的启动Kv与
+     * 近段Kv均为0.00030，因此切换前后不会产生参数阶跃。
      */
     if ((chassis_motion_timing_active != 0U) &&
         (chassis_motion_elapsed_ms <
