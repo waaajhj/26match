@@ -57,6 +57,8 @@ void task_2(void)
     ball_balance_velocity_kv = TASK_2_POSITIVE_KV;
     task_2_positive_kp_enabled = 1U;
 
+    // 从任务2发令时开始记录视觉、PID、速度反馈和电机状态到共享RAM缓存。
+    Task2DebugRecorder_Start();
     BallBalanceControl_Start(
         BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION,
         BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
@@ -100,16 +102,38 @@ void task_2_update(void)
 }
 
 /**
- * @brief 任务3：主循环执行底盘循迹，TIM4同时执行球杆闭环。
+ * @brief 加载任务3的球杆分段控制参数。
+ * @note 本函数无参数和返回值；调用前必须先关闭任务3分段控制，避免TIM4在
+ *       参数写入过程中读取到一半新一半旧的配置。本函数不包含循环、延时或
+ *       通信，不会启动电机；角度限幅和刹车限幅均保留任务3的安全设置。
  */
-void task_3(void)
+static void Task3_BallControlParamsApply(void)
 {
-    Task2SegmentedControl_Disable();
-    Task2_RestoreOriginalParams();
-    Task3SegmentedControl_Disable();
+    // 分段阈值、视觉速度滤波和五段位置/速度反馈参数。
+    task3_segmented_control.near_error_limit_pixel = 30.0f;
+    task3_segmented_control.middle_error_limit_pixel = 100.0f;
+    task3_segmented_control.velocity_filter_time_constant_s = 0.040f;
+    task3_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+
+    task3_segmented_control.near.Kp = 0.00028f;
+    task3_segmented_control.near.Ki = 0.0f;
+    task3_segmented_control.near.Kv = 0.00038f;
+    task3_segmented_control.low_pixel_middle.Kp = 0.00026f;
+    task3_segmented_control.low_pixel_middle.Ki = 0.0f;
+    task3_segmented_control.low_pixel_middle.Kv = 0.00030f;
+    task3_segmented_control.low_pixel_far.Kp = 0.00028f;
+    task3_segmented_control.low_pixel_far.Ki = 0.0f;
+    task3_segmented_control.low_pixel_far.Kv = 0.00024f;
+    task3_segmented_control.high_pixel_middle.Kp = 0.00026f;
+    task3_segmented_control.high_pixel_middle.Ki = 0.0f;
+    task3_segmented_control.high_pixel_middle.Kv = 0.00024f;
+    task3_segmented_control.high_pixel_far.Kp = 0.00028f;
+    task3_segmented_control.high_pixel_far.Ki = 0.0f;
+    task3_segmented_control.high_pixel_far.Kv = 0.00020f;
+
     /*
      * 两轮片上采样表明-10偏向高像素而-18会过度拉向低像素；
-     * 任务3采用折中零偏-14，继续由片上数据校准且不改变任务2目标。
+     * 任务3采用折中零偏-14，且不改变任务2目标。
      */
     task3_segmented_control.target_offset_pixel = -14.0f;
     // 加速时向低像素滑动使用较小Kv，减小电机目标大幅反向。
@@ -124,8 +148,70 @@ void task_3(void)
     task3_segmented_control.acceleration_feedforward_gain = 0.00330f;
     // 恢复实测低像素侧保护更好的任务3正向启动前馈限幅+4.5°。
     task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;
+    task3_segmented_control.acceleration_brake_feedforward_limit_rad =
+        0.10471976f;
+    task3_segmented_control.acceleration_filter_alpha = 1.0f;
+    task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    task3_segmented_control.pitch_motor_kp = 3.5f;
     // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
     task3_segmented_control.pitch_motor_kd = 0.1f;
+}
+
+/**
+ * @brief 加载任务4专用的球杆分段控制参数，初始数值完整复制自任务3。
+ * @note 本函数无参数和返回值；调用前必须先关闭任务3分段控制，避免TIM4在
+ *       参数写入过程中读取到不完整配置。本函数不包含循环、延时或通信，
+ *       不会启动电机；任务4后续调参只修改本函数，不会影响任务3。
+ */
+static void Task4_BallControlParamsApply(void)
+{
+    // 任务4独立保存分段阈值、视觉速度滤波和五段位置/速度反馈参数。
+    task3_segmented_control.near_error_limit_pixel = 30.0f;
+    task3_segmented_control.middle_error_limit_pixel = 100.0f;
+    task3_segmented_control.velocity_filter_time_constant_s = 0.040f;
+    task3_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+
+    task3_segmented_control.near.Kp = 0.00028f;
+    task3_segmented_control.near.Ki = 0.0f;
+    task3_segmented_control.near.Kv = 0.00038f;
+    task3_segmented_control.low_pixel_middle.Kp = 0.00026f;
+    task3_segmented_control.low_pixel_middle.Ki = 0.0f;
+    task3_segmented_control.low_pixel_middle.Kv = 0.00030f;
+    task3_segmented_control.low_pixel_far.Kp = 0.00028f;
+    task3_segmented_control.low_pixel_far.Ki = 0.0f;
+    task3_segmented_control.low_pixel_far.Kv = 0.00024f;
+    task3_segmented_control.high_pixel_middle.Kp = 0.00026f;
+    task3_segmented_control.high_pixel_middle.Ki = 0.0f;
+    task3_segmented_control.high_pixel_middle.Kv = 0.00024f;
+    task3_segmented_control.high_pixel_far.Kp = 0.00028f;
+    task3_segmented_control.high_pixel_far.Ki = 0.0f;
+    task3_segmented_control.high_pixel_far.Kv = 0.00020f;
+
+    task3_segmented_control.target_offset_pixel = -14.0f;
+    task3_segmented_control.startup_velocity_kv = 0.00030f;
+    task3_segmented_control.transition_high_brake_start_pixel = 243.0f;
+    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
+    task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
+    task3_segmented_control.acceleration_release_filter_alpha = 0.45f;
+    task3_segmented_control.acceleration_feedforward_gain = 0.00330f;
+    task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;
+    task3_segmented_control.acceleration_brake_feedforward_limit_rad =
+        0.10471976f;
+    task3_segmented_control.acceleration_filter_alpha = 1.0f;
+    task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    task3_segmented_control.pitch_motor_kp = 3.5f;
+    task3_segmented_control.pitch_motor_kd = 0.1f;
+}
+
+/**
+ * @brief 任务3：主循环执行底盘循迹，TIM4同时执行球杆闭环。
+ */
+void task_3(void)
+{
+    Task2SegmentedControl_Disable();
+    Task2_RestoreOriginalParams();
+    Task3SegmentedControl_Disable();
+    Task3_BallControlParamsApply();
     Task3SegmentedControl_Enable();
     // 仅任务3启用内部高速记录，任务2和任务4不会写入该缓存。
     Task3DebugRecorder_Start();
@@ -141,22 +227,11 @@ void task_4(void)
     Task2SegmentedControl_Disable();
     Task2_RestoreOriginalParams();
     Task3SegmentedControl_Disable();
-    // 任务4暂不沿用任务3的中心零偏，避免任务3调参改变其他任务效果。
-    task3_segmented_control.target_offset_pixel = 0.0f;
-    // 任务4保持全程原近段Kv，不沿用任务3的加速阶段柔化参数。
-    task3_segmented_control.startup_velocity_kv =
-        task3_segmented_control.near.Kv;
-    // 任务4关闭任务3专用的高像素软边界制动。
-    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0f;
-    // 任务4保持原前馈退出方式，避免任务3调参改变任务4效果。
-    task3_segmented_control.acceleration_release_filter_alpha = 1.0f;
-    // 任务4恢复原前馈增益，避免任务3的3 s缓加速参数影响其他任务。
-    task3_segmented_control.acceleration_feedforward_gain = 0.00410f;
-    // 任务4恢复原正向前馈限幅+5°，不沿用任务3参数。
-    task3_segmented_control.acceleration_feedforward_limit_rad = 0.08726646f;
-    // 任务4保持原MIT速度阻尼，避免任务3电机调参改变其他任务效果。
-    task3_segmented_control.pitch_motor_kd = 0.1f;
+    // 当前数值复制自任务3，但由任务4专用函数独立维护，后续调参互不影响。
+    Task4_BallControlParamsApply();
     Task3SegmentedControl_Enable();
+    // 任务4与任务2/3复用RAM采样区，新任务启动时覆盖上一轮数据。
+    Task4DebugRecorder_Start();
     task_2_stage = TASK_2_STAGE_IDLE;
     BallBalanceControl_Start(
         BALL_BALANCE_DEFAULT_TARGET_POSITION,

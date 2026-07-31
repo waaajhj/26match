@@ -1,7 +1,10 @@
 ﻿[CmdletBinding()]
 param(
     [ValidateRange(100, 5000)]
-    [int]$AdapterKHz = 1000
+    [int]$AdapterKHz = 1000,
+
+    [ValidateSet(2, 3, 4)]
+    [int]$TaskNumber = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,10 +14,11 @@ $axfPath = Join-Path $projectRoot 'MDK-ARM\26matchF4\26matchF4.axf'
 $gdbPath = 'E:\link\gdb\gdb.exe'
 $openOcdPath = 'E:\link\openocd\bin\openocd.exe'
 $openOcdScripts = 'E:\link\openocd\share\openocd\scripts'
-$bufferPath = Join-Path $env:TEMP 'codex_task3_buffer_latest.bin'
-$configPath = Join-Path $env:TEMP 'codex_task3_config_latest.bin'
-$csvPath = Join-Path $env:TEMP 'codex_task3_buffer_latest.csv'
-$metaPath = Join-Path $env:TEMP 'codex_task3_buffer_latest_meta.json'
+$taskName = "task$TaskNumber"
+$bufferPath = Join-Path $env:TEMP "codex_${taskName}_buffer_latest.bin"
+$configPath = Join-Path $env:TEMP "codex_${taskName}_config_latest.bin"
+$csvPath = Join-Path $env:TEMP "codex_${taskName}_buffer_latest.csv"
+$metaPath = Join-Path $env:TEMP "codex_${taskName}_buffer_latest_meta.json"
 
 foreach ($requiredPath in @($axfPath, $gdbPath, $openOcdPath, $openOcdScripts))
 {
@@ -68,31 +72,49 @@ $sampleFields = @(
     @{ Name = 'chassis_track_output'; Type = 'float' }
 )
 
-# 不随采样变化的任务3参数单独导出，避免在每个样本中重复占用RAM。
-$configFields = @(
-    'near_error_limit_pixel',
-    'middle_error_limit_pixel',
-    'target_offset_pixel',
-    'velocity_filter_time_constant_s',
-    'near_velocity_deadband_pixel_s',
-    'startup_velocity_kv',
-    'transition_high_brake_start_pixel',
-    'transition_high_brake_gain_rad_per_pixel',
-    'transition_high_brake_limit_rad',
-    'near.Kp', 'near.Ki', 'near.Kv',
-    'low_pixel_middle.Kp', 'low_pixel_middle.Ki', 'low_pixel_middle.Kv',
-    'low_pixel_far.Kp', 'low_pixel_far.Ki', 'low_pixel_far.Kv',
-    'high_pixel_middle.Kp', 'high_pixel_middle.Ki', 'high_pixel_middle.Kv',
-    'high_pixel_far.Kp', 'high_pixel_far.Ki', 'high_pixel_far.Kv',
-    'pitch_motor_kp',
-    'pitch_motor_kd',
-    'acceleration_filter_alpha',
-    'acceleration_release_filter_alpha',
-    'brake_release_filter_alpha',
-    'acceleration_feedforward_gain',
-    'acceleration_feedforward_limit_rad',
-    'acceleration_brake_feedforward_limit_rad'
-)
+# 不随采样变化的分段参数单独导出，避免在每个样本中重复占用RAM。
+if ($TaskNumber -eq 2)
+{
+    $configSymbol = 'task2_segmented_control'
+    $configFields = @(
+        'near_error_limit_pixel',
+        'middle_error_limit_pixel',
+        'velocity_filter_time_constant_s',
+        'near_velocity_deadband_pixel_s',
+        'low_pixel_near.Kp', 'low_pixel_near.Ki', 'low_pixel_near.Kv',
+        'high_pixel_near.Kp', 'high_pixel_near.Ki', 'high_pixel_near.Kv',
+        'middle.Kp', 'middle.Ki', 'middle.Kv',
+        'far.Kp', 'far.Ki', 'far.Kv'
+    )
+}
+else
+{
+    $configSymbol = 'task3_segmented_control'
+    $configFields = @(
+        'near_error_limit_pixel',
+        'middle_error_limit_pixel',
+        'target_offset_pixel',
+        'velocity_filter_time_constant_s',
+        'near_velocity_deadband_pixel_s',
+        'startup_velocity_kv',
+        'transition_high_brake_start_pixel',
+        'transition_high_brake_gain_rad_per_pixel',
+        'transition_high_brake_limit_rad',
+        'near.Kp', 'near.Ki', 'near.Kv',
+        'low_pixel_middle.Kp', 'low_pixel_middle.Ki', 'low_pixel_middle.Kv',
+        'low_pixel_far.Kp', 'low_pixel_far.Ki', 'low_pixel_far.Kv',
+        'high_pixel_middle.Kp', 'high_pixel_middle.Ki', 'high_pixel_middle.Kv',
+        'high_pixel_far.Kp', 'high_pixel_far.Ki', 'high_pixel_far.Kv',
+        'pitch_motor_kp',
+        'pitch_motor_kd',
+        'acceleration_filter_alpha',
+        'acceleration_release_filter_alpha',
+        'brake_release_filter_alpha',
+        'acceleration_feedforward_gain',
+        'acceleration_feedforward_limit_rad',
+        'acceleration_brake_feedforward_limit_rad'
+    )
+}
 
 $queries = [ordered]@{
     recorder_base = '&task3_debug_recorder'
@@ -101,10 +123,11 @@ $queries = [ordered]@{
     recording = '&task3_debug_recorder.recording'
     complete = '&task3_debug_recorder.complete'
     overflow = '&task3_debug_recorder.overflow'
+    task_id = '&task3_debug_recorder.task_id'
     sample_0 = '&task3_debug_recorder.samples[0]'
     sample_1 = '&task3_debug_recorder.samples[1]'
-    config_base = '&task3_segmented_control'
-    config_size = 'sizeof(task3_segmented_control)'
+    config_base = "&$configSymbol"
+    config_size = "sizeof($configSymbol)"
 }
 foreach ($field in $sampleFields)
 {
@@ -114,7 +137,7 @@ foreach ($field in $sampleFields)
 for ($index = 0; $index -lt $configFields.Count; $index++)
 {
     $queries["config_$index"] =
-        "&task3_segmented_control.$($configFields[$index])"
+        "&$configSymbol.$($configFields[$index])"
 }
 
 $gdbArguments = @('-batch', '-ex', ('file ' + ($axfPath -replace '\\', '/')))
@@ -177,7 +200,7 @@ $openOcdExitCode = $LASTEXITCODE
 $ErrorActionPreference = $previousErrorActionPreference
 if ($openOcdExitCode -ne 0)
 {
-    throw "Failed to read Task3 RAM buffer:`n$($openOcdOutput -join "`n")"
+    throw "Failed to read Task$TaskNumber RAM buffer:`n$($openOcdOutput -join "`n")"
 }
 
 $bufferBytes = [System.IO.File]::ReadAllBytes($bufferPath)
@@ -201,11 +224,13 @@ $countOffset = [int]([uint64]$values.sample_count - $recorderBase)
 $recordingOffset = [int]([uint64]$values.recording - $recorderBase)
 $completeOffset = [int]([uint64]$values.complete - $recorderBase)
 $overflowOffset = [int]([uint64]$values.overflow - $recorderBase)
+$taskIdOffset = [int]([uint64]$values.task_id - $recorderBase)
 $samplesOffset = [int]($sampleBase - $recorderBase)
 $sampleCount = [int](Read-Value $bufferBytes $countOffset 'u16')
 $recording = [int](Read-Value $bufferBytes $recordingOffset 'u8')
 $complete = [int](Read-Value $bufferBytes $completeOffset 'u8')
 $overflow = [int](Read-Value $bufferBytes $overflowOffset 'u8')
+$taskId = [int](Read-Value $bufferBytes $taskIdOffset 'u8')
 $capacity = [int](($bufferBytes.Length - $samplesOffset) / $sampleStride)
 if ($sampleCount -gt $capacity)
 {
@@ -234,6 +259,8 @@ for ($sampleIndex = 0; $sampleIndex -lt $sampleCount; $sampleIndex++)
 $rows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 
 $metadata = [ordered]@{
+    requested_task = $TaskNumber
+    recorded_task = $taskId
     sample_count = $sampleCount
     capacity = $capacity
     sample_stride_bytes = $sampleStride
@@ -251,10 +278,14 @@ for ($index = 0; $index -lt $configFields.Count; $index++)
 $metadata | ConvertTo-Json -Depth 4 |
     Set-Content -LiteralPath $metaPath -Encoding UTF8
 
-Write-Host "Task3 RAM capture exported: samples=$sampleCount, complete=$complete, overflow=$overflow"
+Write-Host "Task$TaskNumber RAM capture exported: samples=$sampleCount, complete=$complete, overflow=$overflow"
 Write-Host "CSV: $csvPath"
 Write-Host "Config: $metaPath"
+if ($taskId -ne $TaskNumber)
+{
+    Write-Warning "RAM currently contains Task$taskId data, not Task$TaskNumber data."
+}
 if ($recording -ne 0)
 {
-    Write-Warning 'The capture was read before Task3 motion stopped.'
+    Write-Warning "The Task$TaskNumber capture is still recording; exported rows are a consistent snapshot."
 }

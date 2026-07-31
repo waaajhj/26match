@@ -18,7 +18,7 @@
 //       BALL_BALANCE_VISUAL_LENGTH_CM) * 5.0f)
 #define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 135.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION + BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
-#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 332.0f
+#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 338.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION - BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
 
 // 正5 cm和中心使用±25 pixel，最终-5 cm稳定判断使用±15 pixel。
@@ -110,13 +110,14 @@ typedef struct
     volatile float acceleration_feedforward_angle_rad;
 } Task3SegmentedControl_t;
 
-// 任务3约12.5 s运行、视觉约42 Hz，600个样本可覆盖完整运动并保留余量。
+// 视觉约42 Hz时600个样本可记录约14 s，覆盖任务2、3或4主要运动过程。
 #define TASK3_DEBUG_SAMPLE_CAPACITY 600U
 
 /**
- * @brief 任务3单片机内部调试样本，每个视觉新包记录一次。
+ * @brief 任务2、3和4单片机内部调试样本，每个视觉新包记录一次。
  * @note 角度单位为rad，速度单位为pixel/s，加速度单位为rad/s^2；
- *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。
+ *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。任务2样本中的
+ *       motion_active保存Task2Stage_e阶段值，任务3/4样本中表示底盘是否运动。
  */
 typedef struct
 {
@@ -156,8 +157,9 @@ typedef struct
 } Task3DebugSample_t;
 
 /**
- * @brief 任务3内部记录器状态和连续样本缓存。
- * @note recording由任务3启动，底盘停止或缓存写满后清零；overflow表示样本被截断。
+ * @brief 任务2、3和4复用的内部记录器状态及连续样本缓存。
+ * @note task_id为2、3或4，用于标识当前数据来源；各任务不会同时运行，因此
+ *       复用缓存可避免额外占用约78 KB RAM。overflow表示缓存写满、样本被截断。
  */
 typedef struct
 {
@@ -165,7 +167,8 @@ typedef struct
     volatile uint8_t recording;
     volatile uint8_t complete;
     volatile uint8_t overflow;
-    uint8_t reserved[3];
+    volatile uint8_t task_id;
+    uint8_t reserved[2];
     Task3DebugSample_t samples[TASK3_DEBUG_SAMPLE_CAPACITY];
 } Task3DebugRecorder_t;
 
@@ -209,6 +212,20 @@ void Task3ChassisCommandAccelerationSet(float acceleration_rad_s2);
  *       缓存写满时会停止记录并置overflow，不会改变电机输出。
  */
 void Task3DebugRecorder_Start(void);
+
+/**
+ * @brief 清空共享RAM缓存并启动任务2片上数据记录器。
+ * @note 仅在任务2控制即将启动时调用；函数不含循环、延时和通信，缓存写满后
+ *       自动停止，不会改变PID参数、电机指令或任务状态。
+ */
+void Task2DebugRecorder_Start(void);
+
+/**
+ * @brief 清空共享RAM缓存并启动任务4片上数据记录器。
+ * @note 仅在任务4底盘和球杆控制即将启动时调用；函数不含循环、延时和通信，
+ *       缓存写满或底盘停止后结束记录，不会改变控制参数和电机输出。
+ */
+void Task4DebugRecorder_Start(void);
 
 /**
  * @brief 底盘运动过程及OLED运行时间显示接口。
