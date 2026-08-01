@@ -14,9 +14,9 @@
 // 任务6参数独立于任务2；特殊环境调参只修改这一组定义和专用加载函数。
 #define TASK_2_SPECIAL_POSITIVE_KP_SCALE 1.4f
 #define TASK_2_SPECIAL_POSITIVE_KV 0.00020f
-// 任务6负5目标独立增加5 pixel；普通任务2仍使用全局标定值325 pixel。
+// 任务6负5目标独立增加10 pixel；普通任务2仍使用全局标定宏。
 #define TASK_2_SPECIAL_NEGATIVE_5CM_TARGET_POSITION \
-    (BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION + 10.0f)
+    (BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION + 40.0f)
 
 // 任务5启动前最多等待1 s的新视觉有效包；超时不会启动球杆和底盘。
 #define TASK_5_FIRST_VISUAL_TIMEOUT_MS 1000U
@@ -64,6 +64,7 @@ static void Task2_BallControlParamsApply(void)
     task2_segmented_control.middle_error_limit_pixel = 100.0f;
     task2_segmented_control.velocity_filter_time_constant_s = 0.025f;
     task2_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+    task2_segmented_control.pitch_motor_kp = 3.0f;
     task2_segmented_control.low_pixel_near.Kp = 0.00032f;
     task2_segmented_control.low_pixel_near.Ki = 0.000002f;
     task2_segmented_control.low_pixel_near.Kv = 0.00028f;
@@ -95,13 +96,18 @@ static void Task2Special_BallControlParamsApply(void)
     task2_segmented_control.middle_error_limit_pixel = 100.0f;
     task2_segmented_control.velocity_filter_time_constant_s = 0.025f;
     task2_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+    // 任务6提高球杆目标跟随速度，减少制动角滞留导致的首次回摆。
+    task2_segmented_control.pitch_motor_kp = 3.5f;
+    // 恢复已验证的近段推动力，避免在目标前因静摩擦停顿。
     task2_segmented_control.low_pixel_near.Kp = 0.00028f;
     task2_segmented_control.low_pixel_near.Ki = 0.000001f;
-    // 0.00022实测会在297 pixel附近停顿并大幅回摆，恢复合格率更高的阻尼。
-    task2_segmented_control.low_pixel_near.Kv = 0.0002f;
+    // 0.00018实测使首次接近停在317 pixel且稳定时间变长，回退至较好的0.00020。
+    task2_segmented_control.low_pixel_near.Kv = 0.00020f;
+    // 越过目标后保留速度阻尼，避免高P且无阻尼造成往返震荡。
     task2_segmented_control.high_pixel_near.Kp = 0.00020f;
     task2_segmented_control.high_pixel_near.Ki = 0.0f;
     task2_segmented_control.high_pixel_near.Kv = 0.00015f;
+    // 中段恢复已验证值，减少带着过大速度进入近段。
     task2_segmented_control.middle.Kp = 0.00030f;
     task2_segmented_control.middle.Ki = 0.0f;
     task2_segmented_control.middle.Kv = 0.00018f;

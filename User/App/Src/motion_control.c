@@ -17,7 +17,7 @@
 // 底盘循迹目标速度，单位沿用当前达妙底盘速度接口。
 #define speed_target 10.0f
 // 任务3规定的底盘循迹速度，集中定义便于按赛题要求确认和修改。
-#define TASK3_CHASSIS_SPEED 8.5f
+#define TASK3_CHASSIS_SPEED 8.0f
 // 任务3采用3 s缓加速，并使用独立较小斜率降低实际加速度和运行离散性。
 #define TASK3_CHASSIS_ACCELERATION_TIME_MS 3000U
 #define TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.0025f
@@ -165,6 +165,7 @@ volatile Task2SegmentedControl_t task2_segmented_control = {
     .middle_error_limit_pixel = 100.0f,
     .velocity_filter_time_constant_s = 0.025f, // 减少任务2转向时的速度相位滞后，抑制回摆跌破305像素
     .near_velocity_deadband_pixel_s = 15.0f, // 减小任务2近段速度死区，提前抑制后续小幅回摆
+    .pitch_motor_kp = 3.0f, // 默认保留普通任务2已验证的MIT位置刚度
     .low_pixel_near = {
         .Kp = 0.00032f, // 提高近段静摩擦克服能力，减少等待积分累积的时间
         .Ki = 0.000002f, // 仅目标低像素侧累积小积分，越过目标换段时会自动清零
@@ -1347,7 +1348,13 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
     }
     else if (task2_segmented_control.enabled != 0U)
     {
-        motor_position_kp = 3.0f;
+        motor_position_kp = task2_segmented_control.pitch_motor_kp;
+        if (!((motor_position_kp >= KP_MIN) &&
+              (motor_position_kp <= KP_MAX)))
+        {
+            // LinkScope调参异常时回退安全值，避免MIT刚度超出协议范围。
+            motor_position_kp = 3.0f;
+        }
     }
 
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
@@ -1443,7 +1450,7 @@ void ChassisTrack2_Run(void)
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-	S_regulate_track_with_slope(TASK3_CHASSIS_SPEED, 0, 1500, TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS);
+	S_regulate_track_with_slope(TASK3_CHASSIS_SPEED, 0, 2000,0.001);
     DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
 		delay_ms(3);
     DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);

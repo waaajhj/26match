@@ -9,16 +9,16 @@
  * +5 cm为128 pixel、中心0点为227 pixel、-5 cm为322 pixel。
  * 本机构定义的正方向对应像素减小，重新安装相机后应重新标定三点。
  */
-#define BALL_BALANCE_VISUAL_START_PIXEL 12.0f
-#define BALL_BALANCE_VISUAL_END_PIXEL 457.0f
+#define BALL_BALANCE_VISUAL_START_PIXEL 9.0f
+#define BALL_BALANCE_VISUAL_END_PIXEL 448.0f
 #define BALL_BALANCE_VISUAL_LENGTH_CM 25.0f
 #define BALL_BALANCE_DEFAULT_TARGET_POSITION 227.0f
 // #define BALL_BALANCE_FIVE_CM_OFFSET_PIXEL \
 //     (((BALL_BALANCE_VISUAL_END_PIXEL - BALL_BALANCE_VISUAL_START_PIXEL) / \
 //       BALL_BALANCE_VISUAL_LENGTH_CM) * 5.0f)
-#define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 135.0f
+#define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 129.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION + BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
-#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 325.0f
+#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 329.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION - BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
 
 // 正5 cm和中心使用±25 pixel，最终-5 cm稳定判断使用±15 pixel。
@@ -56,6 +56,7 @@ typedef struct
     float middle_error_limit_pixel;
     float velocity_filter_time_constant_s;
     float near_velocity_deadband_pixel_s;
+    float pitch_motor_kp; // -5 cm分段阶段的DM MIT位置刚度，有效范围0~500
     Task3SegmentParam_t low_pixel_near;
     Task3SegmentParam_t high_pixel_near;
     Task3SegmentParam_t middle;

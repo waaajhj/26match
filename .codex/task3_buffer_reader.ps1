@@ -87,6 +87,7 @@ if (($TaskNumber -eq 2) -or ($TaskNumber -eq 6))
         'middle_error_limit_pixel',
         'velocity_filter_time_constant_s',
         'near_velocity_deadband_pixel_s',
+        'pitch_motor_kp',
         'low_pixel_near.Kp', 'low_pixel_near.Ki', 'low_pixel_near.Kv',
         'high_pixel_near.Kp', 'high_pixel_near.Ki', 'high_pixel_near.Kv',
         'middle.Kp', 'middle.Ki', 'middle.Kv',
