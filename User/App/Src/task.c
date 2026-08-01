@@ -114,10 +114,12 @@ static void Task3_BallControlParamsApply(void)
     task3_segmented_control.middle_error_limit_pixel = 100.0f;
     task3_segmented_control.velocity_filter_time_constant_s = 0.040f;
     task3_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+    // 任务3运动全过程采用非对称速度阻尼，减小低像素回摆后的高侧反弹。
+    task3_segmented_control.low_direction_velocity_kv_enabled = 1U;
 
     task3_segmented_control.near.Kp = 0.00028f;
     task3_segmented_control.near.Ki = 0.0f;
-    task3_segmented_control.near.Kv = 0.00038f;
+    task3_segmented_control.near.Kv = 0.00038f; // 实测0.00034未减小振幅，恢复原近段速度阻尼
     task3_segmented_control.low_pixel_middle.Kp = 0.00026f;
     task3_segmented_control.low_pixel_middle.Ki = 0.0f;
     task3_segmented_control.low_pixel_middle.Kv = 0.00030f;
@@ -138,10 +140,14 @@ static void Task3_BallControlParamsApply(void)
     task3_segmented_control.target_offset_pixel = -14.0f;
     // 加速时向低像素滑动使用较小Kv，减小电机目标大幅反向。
     task3_segmented_control.startup_velocity_kv = 0.00030f;
-    // 高像素超过243 pixel且仍向高侧运动时，使用原0.5°软边界抑制回摆。
-    task3_segmented_control.transition_high_brake_start_pixel = 243.0f;
-    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
-    task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
+    // 提前撤除仍向高像素侧推球的正向前馈，给高速回摆保留制动距离。
+    task3_segmented_control.startup_feedforward_cutoff_start_pixel = 232.0f;
+    task3_segmented_control.startup_feedforward_cutoff_velocity_pixel_s = 10.0f;
+    // 高像素超过240 pixel且仍向高侧运动时，提前介入任务3过渡期软边界。
+    task3_segmented_control.transition_high_brake_start_pixel = 240.0f;
+    // 实测0.0016会激起更大的反向回摆，恢复匀速段更平稳的0.0013。
+    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0013f;
+    task3_segmented_control.transition_high_brake_limit_rad = 0.01221730f; // 最大附加制动0.7°
     // 实测0.35会因前馈残留扩大高侧回摆，恢复效果更好的0.45退出系数。
     task3_segmented_control.acceleration_release_filter_alpha = 0.45f;
     // 3 s缓加速后高侧仍偏大，任务3单独降低前馈增益，将启动峰值角约降至1.32°。
@@ -170,6 +176,8 @@ static void Task4_BallControlParamsApply(void)
     task3_segmented_control.middle_error_limit_pixel = 100.0f;
     task3_segmented_control.velocity_filter_time_constant_s = 0.040f;
     task3_segmented_control.near_velocity_deadband_pixel_s = 15.0f;
+    // 任务4仅同步启动保护，匀速阶段暂不启用任务3新加入的非对称阻尼。
+    task3_segmented_control.low_direction_velocity_kv_enabled = 0U;
 
     task3_segmented_control.near.Kp = 0.00028f;
     task3_segmented_control.near.Ki = 0.0f;
@@ -189,9 +197,12 @@ static void Task4_BallControlParamsApply(void)
 
     task3_segmented_control.target_offset_pixel = -14.0f;
     task3_segmented_control.startup_velocity_kv = 0.00030f;
-    task3_segmented_control.transition_high_brake_start_pixel = 243.0f;
-    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0010f;
-    task3_segmented_control.transition_high_brake_limit_rad = 0.00872665f;
+    // 任务4当前同步任务3的启动前馈撤除策略，但仍在本函数中独立保存数值。
+    task3_segmented_control.startup_feedforward_cutoff_start_pixel = 235.0f;
+    task3_segmented_control.startup_feedforward_cutoff_velocity_pixel_s = 15.0f;
+    task3_segmented_control.transition_high_brake_start_pixel = 240.0f;
+    task3_segmented_control.transition_high_brake_gain_rad_per_pixel = 0.0013f;
+    task3_segmented_control.transition_high_brake_limit_rad = 0.01221730f;
     task3_segmented_control.acceleration_release_filter_alpha = 0.45f;
     task3_segmented_control.acceleration_feedforward_gain = 0.00330f;
     task3_segmented_control.acceleration_feedforward_limit_rad = 0.07853982f;

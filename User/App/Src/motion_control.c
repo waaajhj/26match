@@ -20,7 +20,7 @@
 #define TASK3_CHASSIS_SPEED 8.5f
 // 任务3采用3 s缓加速，并使用独立较小斜率降低实际加速度和运行离散性。
 #define TASK3_CHASSIS_ACCELERATION_TIME_MS 3000U
-#define TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.003f
+#define TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.0025f
 // 任务4单独保存底盘加速S曲线斜率，当前复制任务3的0.003/ms，后续可独立调节。
 #define TASK4_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.003f
 // 底盘加速结束后再介入稳态零偏，避免加速补偿和目标迁移同时作用。
@@ -91,6 +91,8 @@ static volatile float ball_balance_motor_target_angle_rad = 0.0f;
  */
 volatile Task3SegmentedControl_t task3_segmented_control = {
     .enabled = 0U,
+    .startup_feedforward_cutoff_latched = 0U,
+    .low_direction_velocity_kv_enabled = 0U,
     .active_segment = TASK_3_SEGMENT_NEAR,
     .near_error_limit_pixel = 30.0f,
     .middle_error_limit_pixel = 100.0f,
@@ -98,6 +100,8 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .velocity_filter_time_constant_s = 0.040f, // 恢复实测更平稳的任务3速度滤波，避免速度噪声放大回摆
     .near_velocity_deadband_pixel_s = 15.0f,
     .startup_velocity_kv = 0.00038f, // 默认与近段一致，由任务3单独设置加速阶段柔化值
+    .startup_feedforward_cutoff_start_pixel = 500.0f, // 超出视觉范围，默认关闭撤除保护
+    .startup_feedforward_cutoff_velocity_pixel_s = 15.0f,
     .transition_high_brake_start_pixel = 245.0f,
     .transition_high_brake_gain_rad_per_pixel = 0.0f, // 由任务3单独打开，默认不改变其他任务
     .transition_high_brake_limit_rad = 0.00872665f, // 最大附加制动0.5°
@@ -161,9 +165,9 @@ volatile Task2SegmentedControl_t task2_segmented_control = {
     .velocity_filter_time_constant_s = 0.025f, // 减少任务2转向时的速度相位滞后，抑制回摆跌破305像素
     .near_velocity_deadband_pixel_s = 15.0f, // 减小任务2近段速度死区，提前抑制后续小幅回摆
     .low_pixel_near = {
-        .Kp = 0.00048f, // 提高近段静摩擦克服能力，减少等待积分累积的时间
+        .Kp = 0.00032f, // 提高近段静摩擦克服能力，减少等待积分累积的时间
         .Ki = 0.000002f, // 仅目标低像素侧累积小积分，越过目标换段时会自动清零
-        .Kv = 0.00020f, // 小幅增加近段阻尼，缩短首次到达后的回摆距离
+        .Kv = 0.00028f, // 小幅增加近段阻尼，缩短首次到达后的回摆距离
     },
     .high_pixel_near = {
         .Kp = 0.00020f,
@@ -171,7 +175,7 @@ volatile Task2SegmentedControl_t task2_segmented_control = {
         .Kv = 0.00015f, // 减轻越过-5 cm后的反向制动，用高像素侧余量换取更小的低像素回摆
     },
     .middle = {
-        .Kp = 0.00042f, // 继续提高任务2中段驱动力，克服装置当前较大的静摩擦
+        .Kp = 0.00030f, // 继续提高任务2中段驱动力，克服装置当前较大的静摩擦
         .Ki = 0.0f,
         .Kv = 0.00018f, // 降低中段过强反向制动，避免速度项压过位置项造成运动阻塞
     },
@@ -619,6 +623,7 @@ void Task3SegmentedControl_Enable(void)
 
     task3_segmented_control.active_segment =
         TASK_3_SEGMENT_NEAR;
+    task3_segmented_control.startup_feedforward_cutoff_latched = 0U;
     task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
     task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
     task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
@@ -646,6 +651,7 @@ void Task3SegmentedControl_Disable(void)
 
     task3_segmented_control.active_segment =
         TASK_3_SEGMENT_NEAR;
+    task3_segmented_control.startup_feedforward_cutoff_latched = 0U;
     task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
     task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
     task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
@@ -976,6 +982,82 @@ static float Task3AccelerationFeedforwardUpdate(void)
 }
 
 /**
+ * @brief 小球已向高像素回摆时锁定撤除本轮运动的正向加速度前馈。
+ * @param feedforward_angle_rad 本周期原始加速度前馈角，单位rad。
+ * @param current_position 当前视觉横坐标，单位pixel，来自UART4有效数据包。
+ * @retval 保护后的有效前馈角，单位rad。
+ * @note 仅在底盘启动加速阶段、正向前馈仍存在且位置和速度同时超过配置阈值时
+ *       触发；触发后直到任务重新启用前都禁止正向前馈，负向停车前馈不受影响。
+ *       函数无循环、延时和通信，不直接发送电机指令；将位置阈值设在相机范围
+ *       之外可关闭该保护。
+ */
+static float Task3StartupFeedforwardGuard(float feedforward_angle_rad,
+                                          float current_position)
+{
+    if ((task3_segmented_control.startup_feedforward_cutoff_latched == 0U) &&
+        (chassis_motion_timing_active != 0U) &&
+        (chassis_motion_elapsed_ms < TASK3_CHASSIS_ACCELERATION_TIME_MS) &&
+        (feedforward_angle_rad > 0.0f) &&
+        (current_position >=
+         task3_segmented_control.startup_feedforward_cutoff_start_pixel) &&
+        (ball_balance_filtered_velocity_pixel_s >=
+         task3_segmented_control.startup_feedforward_cutoff_velocity_pixel_s))
+    {
+        task3_segmented_control.startup_feedforward_cutoff_latched = 1U;
+    }
+
+    if ((task3_segmented_control.startup_feedforward_cutoff_latched != 0U) &&
+        (feedforward_angle_rad > 0.0f))
+    {
+        feedforward_angle_rad = 0.0f;
+    }
+
+    // 发布保护后的实际前馈，保证RAM采样值与最终电机指令一致。
+    task3_segmented_control.acceleration_feedforward_angle_rad =
+        feedforward_angle_rad;
+    return feedforward_angle_rad;
+}
+
+/**
+ * @brief 计算任务3启动及目标渐入阶段的高像素侧附加制动角。
+ * @param current_position 当前视觉横坐标，单位pixel，来自UART4最近一个有效包。
+ * @retval 附加球杆角，单位rad；仅返回0或负值，绝对值受配置限幅保护。
+ * @note 调用前要求任务3分段控制和底盘计时状态已经正确设置。本函数无循环、
+ *       延时或通信；TIM4在有无视觉新包时均调用，避免40 Hz视觉与50 Hz控制
+ *       不同步造成制动角周期性丢失。速度反向、阶段结束或任务关闭时返回0。
+ */
+static float Task3TransitionHighBrakeCalculate(float current_position)
+{
+    float brake_angle_rad = 0.0f;
+
+    if ((task3_segmented_control.enabled != 0U) &&
+        (chassis_motion_timing_active != 0U) &&
+        (chassis_motion_elapsed_ms <
+         (TASK3_TARGET_OFFSET_START_TIME_MS +
+          TASK3_TARGET_OFFSET_RAMP_TIME_MS)) &&
+        (ball_balance_filtered_velocity_pixel_s > 0.0f) &&
+        (current_position >
+         task3_segmented_control.transition_high_brake_start_pixel) &&
+        (task3_segmented_control.transition_high_brake_gain_rad_per_pixel >
+         0.0f))
+    {
+        brake_angle_rad =
+            -(current_position -
+              task3_segmented_control.transition_high_brake_start_pixel) *
+            task3_segmented_control.transition_high_brake_gain_rad_per_pixel;
+
+        if (brake_angle_rad <
+            -task3_segmented_control.transition_high_brake_limit_rad)
+        {
+            brake_angle_rad =
+                -task3_segmented_control.transition_high_brake_limit_rad;
+        }
+    }
+
+    return brake_angle_rad;
+}
+
+/**
  * @brief 根据任务2的位置误差选择近端两侧、中段或远段控制参数。
  * @param target_position 小球目标位置，单位pixel。
  * @param current_position 小球当前位置，单位pixel。
@@ -1102,10 +1184,14 @@ static void Task3SegmentedControl_Update(float target_position,
     ki = selected_param->Ki;
     kv = selected_param->Kv;
 
-    // 底盘加速阶段向低像素滑动时使用较小Kv，减小电机目标大幅反向。
+    /*
+     * 向低像素运动时使用较小Kv，减弱反向制动把小球再次甩向高像素侧。
+     * 任务3允许该非对称阻尼贯穿底盘运动；任务4保持只在启动阶段使用。
+     */
     if ((chassis_motion_timing_active != 0U) &&
-        (chassis_motion_elapsed_ms <
-         TASK3_CHASSIS_ACCELERATION_TIME_MS) &&
+        ((chassis_motion_elapsed_ms <
+          TASK3_CHASSIS_ACCELERATION_TIME_MS) ||
+         (task3_segmented_control.low_direction_velocity_kv_enabled != 0U)) &&
         (ball_balance_filtered_velocity_pixel_s <= 0.0f))
     {
         kv = task3_segmented_control.startup_velocity_kv;
@@ -1202,33 +1288,17 @@ void position_control(float target_position,
     float transition_high_brake_angle = 0.0f;
     float ball_rod_target_angle;
 
-    /*
-     * 仅在任务3加速及目标渐入阶段、小球接近高像素边界且仍向高像素运动时，
-     * 增加平滑负球杆角。速度反向后立即退出，避免继续把小球推向低侧。
-     */
-    if ((task3_segmented_control.enabled != 0U) &&
-        (chassis_motion_timing_active != 0U) &&
-        (chassis_motion_elapsed_ms <
-         (TASK3_TARGET_OFFSET_START_TIME_MS +
-          TASK3_TARGET_OFFSET_RAMP_TIME_MS)) &&
-        (ball_balance_filtered_velocity_pixel_s > 0.0f) &&
-        (current_position >
-         task3_segmented_control.transition_high_brake_start_pixel) &&
-        (task3_segmented_control.transition_high_brake_gain_rad_per_pixel >
-         0.0f))
+    if (task3_segmented_control.enabled != 0U)
     {
-        transition_high_brake_angle =
-            -(current_position -
-              task3_segmented_control.transition_high_brake_start_pixel) *
-            task3_segmented_control.transition_high_brake_gain_rad_per_pixel;
-
-        if (transition_high_brake_angle <
-            -task3_segmented_control.transition_high_brake_limit_rad)
-        {
-            transition_high_brake_angle =
-                -task3_segmented_control.transition_high_brake_limit_rad;
-        }
+        // 使用本帧更新后的视觉速度判断是否应撤除仍然存在的正向启动前馈。
+        feedforward_angle_rad =
+            Task3StartupFeedforwardGuard(feedforward_angle_rad,
+                                         current_position);
     }
+
+    // 有新视觉包时使用最新位置刷新高像素侧软制动角。
+    transition_high_brake_angle =
+        Task3TransitionHighBrakeCalculate(current_position);
 
     ball_rod_target_angle =
         position_loop_output + velocity_feedback_angle +
@@ -1336,6 +1406,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         float current_target_position;
         float current_target_tolerance_pixel;
         float feedforward_angle_rad = 0.0f;
+        float transition_high_brake_angle_rad = 0.0f;
 
         if (ball_balance_control_enabled == 0U)
         {
@@ -1360,10 +1431,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         {
             if (task3_segmented_control.enabled != 0U)
             {
+                // 无视觉新包时复用上一帧位置和速度，保持启动前馈撤除状态一致。
+                feedforward_angle_rad =
+                    Task3StartupFeedforwardGuard(
+                        feedforward_angle_rad,
+                        (float)point_packet.centerpoint_x);
+                transition_high_brake_angle_rad =
+                    Task3TransitionHighBrakeCalculate(
+                        (float)point_packet.centerpoint_x);
                 BallBalanceRodAngleCommandSend(
                     PID_DM_Pitch_Position.Output +
                     ball_balance_velocity_feedback_angle_rad +
-                    feedforward_angle_rad);
+                    feedforward_angle_rad +
+                    transition_high_brake_angle_rad);
             }
             return;
         }
@@ -1431,7 +1511,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             Task34DebugRecorder_Record(current_position,
                                        current_target_position,
                                        current_packet_count,
-                                       feedforward_angle_rad);
+                                       task3_segmented_control.
+                                           acceleration_feedforward_angle_rad);
         }
         else
         {

@@ -18,7 +18,7 @@
 //       BALL_BALANCE_VISUAL_LENGTH_CM) * 5.0f)
 #define BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION 135.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION + BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
-#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 338.0f
+#define BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION 325.0f
     // (BALL_BALANCE_DEFAULT_TARGET_POSITION - BALL_BALANCE_FIVE_CM_OFFSET_PIXEL)
 
 // 正5 cm和中心使用±25 pixel，最终-5 cm稳定判断使用±15 pixel。
@@ -81,13 +81,17 @@ typedef enum
 typedef struct
 {
     volatile uint8_t enabled;
+    volatile uint8_t startup_feedforward_cutoff_latched; // 本轮运动已撤除正向启动前馈
+    uint8_t low_direction_velocity_kv_enabled; // 非启动阶段是否对低像素运动使用startup_velocity_kv
     volatile Task3Segment_e active_segment;
     float near_error_limit_pixel;
     float middle_error_limit_pixel;
     float target_offset_pixel;                  // 任务3内部目标零偏(pixel)，不修改公共中心坐标
     float velocity_filter_time_constant_s;       // 任务3视觉速度滤波时间常数
     float near_velocity_deadband_pixel_s;        // 近段速度反馈死区(pixel/s)
-    float startup_velocity_kv;                   // 加速阶段向低像素滑动时的速度反馈增益(rad/(pixel/s))
+    float startup_velocity_kv;                   // 加速或配置启用后向低像素运动的速度反馈增益(rad/(pixel/s))
+    float startup_feedforward_cutoff_start_pixel; // 启动正向前馈撤除起点(pixel)
+    float startup_feedforward_cutoff_velocity_pixel_s; // 向高像素速度阈值(pixel/s)
     float transition_high_brake_start_pixel;     // 加速及目标渐入阶段的高像素软边界起点(pixel)
     float transition_high_brake_gain_rad_per_pixel; // 超过高像素软边界后的附加制动增益(rad/pixel)
     float transition_high_brake_limit_rad;       // 高像素软边界附加制动角限幅(rad)

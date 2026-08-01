@@ -4,7 +4,13 @@ param(
     [int]$AdapterKHz = 1000,
 
     [ValidateSet(2, 3, 4)]
-    [int]$TaskNumber = 3
+    [int]$TaskNumber = 3,
+
+    # 赛题判定使用物理目标坐标，不使用任务3内部为抵消运动偏置而渐入的PID目标。
+    [double]$RequirementTargetPixel = 227.0,
+
+    [ValidateRange(0.0, 500.0)]
+    [double]$RequirementTolerancePixel = 18.0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,6 +103,8 @@ else
         'velocity_filter_time_constant_s',
         'near_velocity_deadband_pixel_s',
         'startup_velocity_kv',
+        'startup_feedforward_cutoff_start_pixel',
+        'startup_feedforward_cutoff_velocity_pixel_s',
         'transition_high_brake_start_pixel',
         'transition_high_brake_gain_rad_per_pixel',
         'transition_high_brake_limit_rad',
@@ -258,6 +266,50 @@ for ($sampleIndex = 0; $sampleIndex -lt $sampleCount; $sampleIndex++)
 }
 $rows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 
+function Get-RequirementSummary([object[]]$Samples, [string]$Name)
+{
+    $matchingCount = @($Samples | Where-Object {
+        [math]::Abs([double]$_.point_x - $RequirementTargetPixel) -le
+            $RequirementTolerancePixel
+    }).Count
+    $sampleTotal = $Samples.Count
+    $matchingPercent = if ($sampleTotal -gt 0) {
+        100.0 * $matchingCount / $sampleTotal
+    } else {
+        0.0
+    }
+
+    return [pscustomobject]@{
+        name = $Name
+        sample_count = $sampleTotal
+        matching_count = $matchingCount
+        matching_percent = $matchingPercent
+    }
+}
+
+$requirementSummary = Get-RequirementSummary @($rows) 'all'
+$task3PhaseSummaries = @()
+if ($TaskNumber -eq 3)
+{
+    # 时间段与当前任务3流程一致：3 s加速、2.5 s零偏渐入、8 s开始停车。
+    $task3PhaseSummaries = @(
+        Get-RequirementSummary @($rows | Where-Object {
+            [double]$_.elapsed_ms -lt 3000.0
+        }) 'startup_0_3s'
+        Get-RequirementSummary @($rows | Where-Object {
+            ([double]$_.elapsed_ms -ge 3000.0) -and
+            ([double]$_.elapsed_ms -lt 5500.0)
+        }) 'transition_3_5.5s'
+        Get-RequirementSummary @($rows | Where-Object {
+            ([double]$_.elapsed_ms -ge 5500.0) -and
+            ([double]$_.elapsed_ms -lt 8000.0)
+        }) 'steady_5.5_8s'
+        Get-RequirementSummary @($rows | Where-Object {
+            [double]$_.elapsed_ms -ge 8000.0
+        }) 'braking_after_8s'
+    )
+}
+
 $metadata = [ordered]@{
     requested_task = $TaskNumber
     recorded_task = $taskId
@@ -267,6 +319,11 @@ $metadata = [ordered]@{
     recording = $recording
     complete = $complete
     overflow = $overflow
+    requirement_target_pixel = $RequirementTargetPixel
+    requirement_tolerance_pixel = $RequirementTolerancePixel
+    requirement_matching_count = $requirementSummary.matching_count
+    requirement_matching_percent = $requirementSummary.matching_percent
+    requirement_phase_summary = $task3PhaseSummaries
 }
 for ($index = 0; $index -lt $configFields.Count; $index++)
 {
@@ -279,6 +336,16 @@ $metadata | ConvertTo-Json -Depth 4 |
     Set-Content -LiteralPath $metaPath -Encoding UTF8
 
 Write-Host "Task$TaskNumber RAM capture exported: samples=$sampleCount, complete=$complete, overflow=$overflow"
+Write-Host ("Requirement {0:F1} +/-{1:F1} pixel: {2}/{3} samples ({4:F1}%)" -f
+    $RequirementTargetPixel, $RequirementTolerancePixel,
+    $requirementSummary.matching_count, $requirementSummary.sample_count,
+    $requirementSummary.matching_percent)
+foreach ($phaseSummary in $task3PhaseSummaries)
+{
+    Write-Host ("  {0}: {1}/{2} ({3:F1}%)" -f
+        $phaseSummary.name, $phaseSummary.matching_count,
+        $phaseSummary.sample_count, $phaseSummary.matching_percent)
+}
 Write-Host "CSV: $csvPath"
 Write-Host "Config: $metaPath"
 if ($taskId -ne $TaskNumber)
