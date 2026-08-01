@@ -5,6 +5,7 @@
 #include "DM_Motor.h"
 #include "jy61p.h"
 #include "maixcam.h"
+#include "OLED.h"
 #include "pid.h"
 
 // 正5 cm阶段提高位置P并降低速度阻尼，兼顾到达速度和目标精度。
@@ -28,6 +29,10 @@
 // 任务7按用户要求每3 ms直接重发一次Pitch电机失能帧。
 #define TASK_7_DISABLE_PERIOD_MS 3U
 
+// 任务2/6竞赛计时只显示到4 s；OLED使用软件I2C，限制100 ms刷新一次。
+#define TASK_2_TIMER_STOP_MS 4000U
+#define TASK_2_TIMER_OLED_REFRESH_MS 100U
+
 // 任务2阶段只在主循环修改，可在Keil Watch中观察当前目标阶段。
 volatile Task2Stage_e task_2_stage = TASK_2_STAGE_IDLE;
 static float task_2_original_kp = 0.0f;
@@ -36,6 +41,20 @@ static uint8_t task_2_positive_kp_enabled = 0U;
 // 当前任务2流程的负5目标，单位pixel；由主循环启动任务2或任务6时选择。
 static float task_2_negative_target_position =
     BALL_BALANCE_NEGATIVE_5CM_TARGET_POSITION;
+
+/**
+ * @brief 任务2与任务6共用的主循环计时状态。
+ * @note 所有字段只在主循环更新，单位为ms；不与TIM4中断共享。
+ */
+typedef struct
+{
+    uint8_t active;
+    uint32_t start_ms;
+    uint32_t elapsed_ms;
+    uint32_t oled_last_refresh_ms;
+} Task2Timer_t;
+
+static Task2Timer_t task_2_timer = {0};
 
 /**
  * @brief 恢复任务2启动前的位置P和速度反馈系数。
@@ -48,6 +67,68 @@ static void Task2_RestoreOriginalParams(void)
         PID_DM_Pitch_Position.Kp = task_2_original_kp;
         ball_balance_velocity_kv = task_2_original_kv;
         task_2_positive_kp_enabled = 0U;
+    }
+}
+
+/**
+ * @brief 启动任务2/6的4 s OLED计时。
+ * @retval 无。
+ * @note 必须在主循环中调用，且OLED已初始化。函数无延时和等待循环，
+ *       但初始显示会进行短时软件I2C通信；不启停球杆或电机。
+ */
+static void Task2Timer_Start(void)
+{
+    uint32_t now_ms;
+
+    OLED_ShowString(1, 1, "TIME:");
+    OLED_ShowNum(1, 6, 0U, 5);
+    OLED_ShowString(1, 11, "ms");
+
+    now_ms = HAL_GetTick();
+    task_2_timer.active = 1U;
+    task_2_timer.start_ms = now_ms;
+    task_2_timer.elapsed_ms = 0U;
+    task_2_timer.oled_last_refresh_ms = now_ms;
+}
+
+/**
+ * @brief 更新任务2/6计时并周期刷新OLED，到4 s后冻结显示。
+ * @retval 无。
+ * @note 只能由主循环调用；无延时和等待循环。OLED最快100 ms刷新一次，
+ *       TIM4仍可抢占执行球杆控制。计时停止不会停止位置闭环或失能电机。
+ */
+static void Task2Timer_Update(void)
+{
+    uint32_t now_ms;
+
+    if (task_2_timer.active == 0U)
+    {
+        return;
+    }
+
+    // 切换至其他任务时只退出计时，避免覆盖底盘任务的OLED显示。
+    if (task_2_stage == TASK_2_STAGE_IDLE)
+    {
+        task_2_timer.active = 0U;
+        return;
+    }
+
+    now_ms = HAL_GetTick();
+    task_2_timer.elapsed_ms = now_ms - task_2_timer.start_ms;
+
+    if (task_2_timer.elapsed_ms >= TASK_2_TIMER_STOP_MS)
+    {
+        task_2_timer.elapsed_ms = TASK_2_TIMER_STOP_MS;
+        OLED_ShowNum(1, 6, task_2_timer.elapsed_ms, 5);
+        task_2_timer.active = 0U;
+        return;
+    }
+
+    if ((now_ms - task_2_timer.oled_last_refresh_ms) >=
+        TASK_2_TIMER_OLED_REFRESH_MS)
+    {
+        OLED_ShowNum(1, 6, task_2_timer.elapsed_ms, 5);
+        task_2_timer.oled_last_refresh_ms = now_ms;
     }
 }
 
@@ -168,6 +249,8 @@ static void Task2_StartCommon(uint8_t special_mode)
         Task2DebugRecorder_Start();
     }
 
+    // OLED初始显示完成后紧接着启动位置环，计时起点对应任务发令。
+    Task2Timer_Start();
     BallBalanceControl_Start(
         BALL_BALANCE_POSITIVE_5CM_TARGET_POSITION,
         BALL_BALANCE_INTERMEDIATE_TOLERANCE_PIXEL);
@@ -218,6 +301,9 @@ void task_2_special(void)
  */
 void task_2_update(void)
 {
+    // 计时与目标到达标志无关，必须在早退出判断前每轮更新。
+    Task2Timer_Update();
+
     if (ball_balance_target_in_range_count == 0U)
     {
         return;
