@@ -106,9 +106,9 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .transition_high_brake_gain_rad_per_pixel = 0.0f, // 由任务3单独打开，默认不改变其他任务
     .transition_high_brake_limit_rad = 0.00872665f, // 最大附加制动0.5°
     .near = {
-        .Kp = 0.00028f, // 恢复实测较平稳的近段位置增益，避免中心附近反复大幅回摆
+        .Kp = 0.00015f, // 恢复实测较平稳的近段位置增益，避免中心附近反复大幅回摆
         .Ki = 0.000000f, // 正式运行关闭近段积分，避免静摩擦导致慢周期积分极限环
-        .Kv = 0.00038f, // 加速结束后恢复较大速度阻尼，抑制第二次及后续回摆
+        .Kv = 0.00028f, // 加速结束后恢复较大速度阻尼，抑制第二次及后续回摆
     },
     .low_pixel_middle = {
         .Kp = 0.00026f,
