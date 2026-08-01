@@ -22,7 +22,7 @@
 #define TASK3_CHASSIS_ACCELERATION_TIME_MS 3000U
 #define TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.0025f
 // 任务4单独保存底盘加速S曲线斜率，当前复制任务3的0.003/ms，后续可独立调节。
-#define TASK4_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.003f
+#define TASK4_CHASSIS_ACCELERATION_SLOPE_PER_MS 0.0025f
 // 底盘加速结束后再介入稳态零偏，避免加速补偿和目标迁移同时作用。
 #define TASK3_TARGET_OFFSET_START_TIME_MS TASK3_CHASSIS_ACCELERATION_TIME_MS
 // 用2.5 s缓慢渐入目标零偏，兼顾高像素回摆与低像素过度纠正。
@@ -81,7 +81,7 @@ volatile float ball_balance_filtered_velocity_pixel_s = 0.0f;
 volatile float ball_balance_velocity_kv = 0.00038f;
 volatile float ball_balance_velocity_feedback_angle_rad = 0.0f;
 volatile float ball_balance_rod_target_angle_rad = 0.0f;
-// 最近一次四连杆反解后的电机目标角，供任务2/3/4片上采样，单位rad。
+// 最近一次四连杆反解后的电机目标角，供任务2~6片上采样，单位rad。
 static volatile float ball_balance_motor_target_angle_rad = 0.0f;
 
 /*
@@ -148,7 +148,7 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .acceleration_feedforward_angle_rad = 0.0f,
 };
 
-// 任务2/3/4调参数据复用一个连续结构体，便于运行后由DAP一次性读取。
+// 任务2~6调参数据复用一个连续结构体，便于运行后由DAP一次性读取。
 volatile Task3DebugRecorder_t task3_debug_recorder = {0};
 // 任务2无底盘计时，单独保存采样起点；单位ms，来源为HAL系统时基。
 static uint32_t task2_debug_start_tick_ms = 0U;
@@ -227,6 +227,23 @@ void Task2DebugRecorder_Start(void)
 }
 
 /**
+ * @brief 清空共享RAM缓存并启动任务6（特殊环境任务2）内部数据记录器。
+ * @note 调用前应确认即将执行任务6；函数不包含循环、延时或通信，只重置
+ *       共享记录状态并将task_id置为6，不改变PID参数、任务阶段或电机输出。
+ */
+void Task2SpecialDebugRecorder_Start(void)
+{
+    // 任务6与任务2分时复用同一RAM缓存，启动新任务时覆盖上一轮样本。
+    task3_debug_recorder.recording = 0U;
+    task3_debug_recorder.sample_count = 0U;
+    task3_debug_recorder.overflow = 0U;
+    task3_debug_recorder.complete = 0U;
+    task3_debug_recorder.task_id = 6U;
+    task2_debug_start_tick_ms = HAL_GetTick();
+    task3_debug_recorder.recording = 1U;
+}
+
+/**
  * @brief 清空共享RAM缓存并启动任务3内部数据记录器。
  * @note 调用前应确认本次即将执行任务3；函数不包含循环、延时或通信操作，
  *       只清除计数和状态，不改变任何控制参数或电机输出。
@@ -259,19 +276,35 @@ void Task4DebugRecorder_Start(void)
 }
 
 /**
- * @brief 将一次任务3或任务4视觉闭环状态写入片上RAM连续缓存。
+ * @brief 清空共享RAM缓存并启动任务5内部数据记录器。
+ * @note 调用前应已捕获任务5固定目标且即将启动底盘；函数不包含循环、延时或
+ *       通信，只清除记录状态，不改变目标坐标、控制参数或电机输出。
+ */
+void Task5DebugRecorder_Start(void)
+{
+    // 先关闭写入，避免TIM4在主循环重置计数期间发布不完整样本。
+    task3_debug_recorder.recording = 0U;
+    task3_debug_recorder.sample_count = 0U;
+    task3_debug_recorder.overflow = 0U;
+    task3_debug_recorder.complete = 0U;
+    task3_debug_recorder.task_id = 5U;
+    task3_debug_recorder.recording = 1U;
+}
+
+/**
+ * @brief 将一次任务3、任务4或任务5视觉闭环状态写入片上RAM连续缓存。
  * @param current_position 当前视觉横坐标，单位pixel，来自UART4有效数据包。
  * @param effective_target_position 本次位置环实际使用的目标，单位pixel。
  * @param packet_count UART4累计有效包计数，用于检查视觉丢包和采样连续性。
  * @param feedforward_angle_rad 本周期底盘加速度前馈角，单位rad。
- * @note 本函数只由TIM4在收到视觉新包且任务3/4底盘正在运动时调用；不含
+ * @note 本函数只由TIM4在收到视觉新包且任务3/4/5底盘正在运动时调用；不含
  *       循环、延时和通信。缓存写满后停止记录并置complete、overflow，
  *       不影响控制输出。
  */
-static void Task34DebugRecorder_Record(float current_position,
-                                       float effective_target_position,
-                                       uint32_t packet_count,
-                                       float feedforward_angle_rad)
+static void Task345DebugRecorder_Record(float current_position,
+                                        float effective_target_position,
+                                        uint32_t packet_count,
+                                        float feedforward_angle_rad)
 {
     uint16_t sample_index;
     volatile Task3DebugSample_t *sample;
@@ -279,7 +312,8 @@ static void Task34DebugRecorder_Record(float current_position,
 
     if ((task3_debug_recorder.recording == 0U) ||
         ((task3_debug_recorder.task_id != 3U) &&
-         (task3_debug_recorder.task_id != 4U)) ||
+         (task3_debug_recorder.task_id != 4U) &&
+         (task3_debug_recorder.task_id != 5U)) ||
         (chassis_motion_timing_active == 0U))
     {
         return;
@@ -349,8 +383,8 @@ static void Task34DebugRecorder_Record(float current_position,
  * @param current_position 当前视觉横坐标，单位pixel，来自UART4有效数据包。
  * @param effective_target_position 本次位置环实际目标，单位pixel。
  * @param packet_count UART4累计有效包计数，用于检查视觉采样连续性。
- * @note 本函数只由TIM4在任务2收到新视觉包后调用，不含循环、延时或通信；
- *       sample.motion_active在任务2数据中保存Task2Stage_e阶段值。缓存写满后
+ * @note 本函数只由TIM4在任务2或任务6收到新视觉包后调用，不含循环、延时或通信；
+ *       sample.motion_active在任务2/6数据中保存Task2Stage_e阶段值。缓存写满后
  *       自动停止并置complete、overflow，不影响位置控制和电机输出。
  */
 static void Task2DebugRecorder_Record(float current_position,
@@ -363,7 +397,8 @@ static void Task2DebugRecorder_Record(float current_position,
     const DM_Motor_t *pitch_motor;
 
     if ((task3_debug_recorder.recording == 0U) ||
-        (task3_debug_recorder.task_id != 2U) ||
+        ((task3_debug_recorder.task_id != 2U) &&
+         (task3_debug_recorder.task_id != 6U)) ||
         (task_2_stage == TASK_2_STAGE_IDLE))
     {
         return;
@@ -484,10 +519,11 @@ void ChassisMotionTime_Stop(void)
     OLED_ShowNum(1, 6, chassis_motion_elapsed_ms, 5);
     chassis_motion_timing_active = 0U;
 
-    // 任务3/4在底盘停止后置完成；任务2由缓存写满自动停止。
+    // 任务3/4/5在底盘停止后置完成；任务2由缓存写满自动停止。
     if ((task3_debug_recorder.recording != 0U) &&
         ((task3_debug_recorder.task_id == 3U) ||
-         (task3_debug_recorder.task_id == 4U)))
+         (task3_debug_recorder.task_id == 4U) ||
+         (task3_debug_recorder.task_id == 5U)))
     {
         task3_debug_recorder.recording = 0U;
         task3_debug_recorder.complete = 1U;
@@ -1354,7 +1390,7 @@ void ChassisTrack2_Run(void)
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-	S_regulate_track(TASK3_CHASSIS_SPEED, 0, 1500);
+	S_regulate_track_with_slope(TASK3_CHASSIS_SPEED, 0, 1500, TASK3_CHASSIS_ACCELERATION_SLOPE_PER_MS);
     DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
 		delay_ms(3);
     DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
@@ -1371,7 +1407,7 @@ void ChassisTrack3_Run(void)
     ChassisMotionTime_Start();
     // 任务4使用独立的0.003/ms斜率加速，当前数值与任务3一致但可单独调节。
     S_regulate_track_with_slope(
-        0.0f, speed_target - 3.0f, 1500U,
+        0.0f, speed_target - 3.0f, 3000U,
         TASK4_CHASSIS_ACCELERATION_SLOPE_PER_MS);
     while (scan_cross_nostop(line) != 0)
     {
@@ -1379,7 +1415,7 @@ void ChassisTrack3_Run(void)
         ChassisMotionTime_Update();
         delay_ms(3);
     }
-    S_regulate_track(TASK3_CHASSIS_SPEED, 0, 3000);
+   S_regulate_track_with_slope(speed_target-3, 0, 3000U, TASK4_CHASSIS_ACCELERATION_SLOPE_PER_MS);
     // 到达路口后直接发送零速度，保留当前任务1的停车行为。
     DM_SpeedControl(DM_Chassis1_TX_ID, MOTOR_ENABLE, 0.0f);
     DM_SpeedControl(DM_Chassis2_TX_ID, MOTOR_ENABLE, 0.0f);
@@ -1505,14 +1541,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                          current_position,
                          feedforward_angle_rad);
 
-        // 任务2、3和4复用同一RAM缓存，并由task_id区分本次数据来源。
+        // 任务2~6复用同一RAM缓存，并由task_id区分本次数据来源。
         if (task3_segmented_control.enabled != 0U)
         {
-            Task34DebugRecorder_Record(current_position,
-                                       current_target_position,
-                                       current_packet_count,
-                                       task3_segmented_control.
-                                           acceleration_feedforward_angle_rad);
+            Task345DebugRecorder_Record(current_position,
+                                        current_target_position,
+                                        current_packet_count,
+                                        task3_segmented_control.
+                                            acceleration_feedforward_angle_rad);
         }
         else
         {

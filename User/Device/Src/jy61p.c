@@ -114,9 +114,9 @@ void jy61p_ReceiveData(uint8_t RxData)
  * @param rx_byte USART2 本次中断接收到的单字节数据。
  * @retval 无。
  * @note 调用前必须已初始化 USART2，并以单字节中断方式持续接收。
- *       帧格式固定为 0xAA + 任务号(1~5) + 0x55，共 3 字节。
+ *       帧格式固定为 0xAA + 任务号(1~6) + 0x55，共 3 字节。
  *       本函数不执行任务、不循环、不延时；任务 1 只更新状态，
- *       任务 2~5 会置 serial_screen_task_ready，交给主循环处理。
+ *       任务 2~6 会置 serial_screen_task_ready，交给主循环处理。
  *       非法任务号或错误包尾会被丢弃，状态机会等待下一个 0xAA 重新同步。
  */
 void SerialScreen_ReceiveData(uint8_t rx_byte)
@@ -132,7 +132,7 @@ void SerialScreen_ReceiveData(uint8_t rx_byte)
 
     case SERIAL_SCREEN_WAIT_TASK:
         if ((rx_byte >= (uint8_t)SERIAL_SCREEN_TASK_1) &&
-            (rx_byte <= (uint8_t)SERIAL_SCREEN_TASK_5))
+            (rx_byte <= (uint8_t)SERIAL_SCREEN_TASK_6))
         {
             serial_screen_task_candidate = rx_byte;
             serial_screen_rx_state = SERIAL_SCREEN_WAIT_FOOTER;

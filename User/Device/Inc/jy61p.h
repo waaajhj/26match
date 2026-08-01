@@ -5,8 +5,8 @@
 
 /*
  * USART2 串口屏任务帧格式：0xAA + 任务号 + 0x55，共 3 字节。
- * 任务号有效范围为 1~5；任务 1 只记录状态，不置执行标志，
- * 任务 2~5 收到完整有效帧后置 serial_screen_task_ready。
+ * 任务号有效范围为 1~6；任务 1 只记录状态，不置执行标志，
+ * 任务 2~6 收到完整有效帧后置 serial_screen_task_ready。
  */
 typedef enum
 {
@@ -15,7 +15,8 @@ typedef enum
     SERIAL_SCREEN_TASK_2 = 2U,
     SERIAL_SCREEN_TASK_3 = 3U,
     SERIAL_SCREEN_TASK_4 = 4U,
-    SERIAL_SCREEN_TASK_5 = 5U
+    SERIAL_SCREEN_TASK_5 = 5U,
+    SERIAL_SCREEN_TASK_6 = 6U
 } SerialScreenTask_e;
 
 void Hal_Uart_Init(void);

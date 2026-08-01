@@ -14,6 +14,7 @@ typedef enum
 // 任务编排接口；具体底盘和球杆控制实现在motion_control模块中。
 void task_1(void);
 void task_2(void);
+void task_2_special(void);
 void task_2_update(void);
 void task_3(void);
 void task_4(void);

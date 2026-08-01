@@ -9,8 +9,8 @@
  * +5 cm为128 pixel、中心0点为227 pixel、-5 cm为322 pixel。
  * 本机构定义的正方向对应像素减小，重新安装相机后应重新标定三点。
  */
-#define BALL_BALANCE_VISUAL_START_PIXEL 15.0f
-#define BALL_BALANCE_VISUAL_END_PIXEL 460.0f
+#define BALL_BALANCE_VISUAL_START_PIXEL 12.0f
+#define BALL_BALANCE_VISUAL_END_PIXEL 457.0f
 #define BALL_BALANCE_VISUAL_LENGTH_CM 25.0f
 #define BALL_BALANCE_DEFAULT_TARGET_POSITION 227.0f
 // #define BALL_BALANCE_FIVE_CM_OFFSET_PIXEL \
@@ -114,14 +114,14 @@ typedef struct
     volatile float acceleration_feedforward_angle_rad;
 } Task3SegmentedControl_t;
 
-// 视觉约42 Hz时600个样本可记录约14 s，覆盖任务2、3或4主要运动过程。
+// 视觉约42 Hz时600个样本可记录约14 s，覆盖任务2~6主要运动过程。
 #define TASK3_DEBUG_SAMPLE_CAPACITY 600U
 
 /**
- * @brief 任务2、3和4单片机内部调试样本，每个视觉新包记录一次。
+ * @brief 任务2~6单片机内部调试样本，每个视觉新包记录一次。
  * @note 角度单位为rad，速度单位为pixel/s，加速度单位为rad/s^2；
  *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。任务2样本中的
- *       motion_active保存Task2Stage_e阶段值，任务3/4样本中表示底盘是否运动。
+ *       任务2/6的motion_active保存Task2Stage_e阶段值，任务3/4/5中表示底盘是否运动。
  */
 typedef struct
 {
@@ -161,8 +161,8 @@ typedef struct
 } Task3DebugSample_t;
 
 /**
- * @brief 任务2、3和4复用的内部记录器状态及连续样本缓存。
- * @note task_id为2、3或4，用于标识当前数据来源；各任务不会同时运行，因此
+ * @brief 任务2~6复用的内部记录器状态及连续样本缓存。
+ * @note task_id为2~6，用于标识当前数据来源；各任务不会同时运行，因此
  *       复用缓存可避免额外占用约78 KB RAM。overflow表示缓存写满、样本被截断。
  */
 typedef struct
@@ -225,11 +225,25 @@ void Task3DebugRecorder_Start(void);
 void Task2DebugRecorder_Start(void);
 
 /**
+ * @brief 清空共享RAM缓存并启动任务6（特殊环境任务2）片上数据记录器。
+ * @note 仅在任务6控制即将启动时调用；函数不含循环、延时和通信，缓存写满后
+ *       自动停止。任务号记录为6，不改变PID参数、电机指令或任务状态。
+ */
+void Task2SpecialDebugRecorder_Start(void);
+
+/**
  * @brief 清空共享RAM缓存并启动任务4片上数据记录器。
  * @note 仅在任务4底盘和球杆控制即将启动时调用；函数不含循环、延时和通信，
  *       缓存写满或底盘停止后结束记录，不会改变控制参数和电机输出。
  */
 void Task4DebugRecorder_Start(void);
+
+/**
+ * @brief 清空共享RAM缓存并启动任务5片上数据记录器。
+ * @note 仅在任务5成功捕获首帧目标、底盘即将启动时调用；函数不含循环、延时
+ *       和通信，缓存写满或底盘停止后结束记录，不改变控制目标或电机输出。
+ */
+void Task5DebugRecorder_Start(void);
 
 /**
  * @brief 底盘运动过程及OLED运行时间显示接口。

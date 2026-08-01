@@ -3,7 +3,7 @@ param(
     [ValidateRange(100, 5000)]
     [int]$AdapterKHz = 1000,
 
-    [ValidateSet(2, 3, 4)]
+    [ValidateSet(2, 3, 4, 5, 6)]
     [int]$TaskNumber = 3,
 
     # 赛题判定使用物理目标坐标，不使用任务3内部为抵消运动偏置而渐入的PID目标。
@@ -79,7 +79,7 @@ $sampleFields = @(
 )
 
 # 不随采样变化的分段参数单独导出，避免在每个样本中重复占用RAM。
-if ($TaskNumber -eq 2)
+if (($TaskNumber -eq 2) -or ($TaskNumber -eq 6))
 {
     $configSymbol = 'task2_segmented_control'
     $configFields = @(
@@ -266,10 +266,19 @@ for ($sampleIndex = 0; $sampleIndex -lt $sampleCount; $sampleIndex++)
 }
 $rows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 
+$analysisTargetPixel = $RequirementTargetPixel
+if (($TaskNumber -eq 5) -and
+    (-not $PSBoundParameters.ContainsKey('RequirementTargetPixel')) -and
+    ($rows.Count -gt 0))
+{
+    # 任务5的物理目标是启动后的首帧坐标；第一个样本尚未进入零偏渐入阶段。
+    $analysisTargetPixel = [double]$rows[0].effective_target_pixel
+}
+
 function Get-RequirementSummary([object[]]$Samples, [string]$Name)
 {
     $matchingCount = @($Samples | Where-Object {
-        [math]::Abs([double]$_.point_x - $RequirementTargetPixel) -le
+        [math]::Abs([double]$_.point_x - $analysisTargetPixel) -le
             $RequirementTolerancePixel
     }).Count
     $sampleTotal = $Samples.Count
@@ -319,7 +328,7 @@ $metadata = [ordered]@{
     recording = $recording
     complete = $complete
     overflow = $overflow
-    requirement_target_pixel = $RequirementTargetPixel
+    requirement_target_pixel = $analysisTargetPixel
     requirement_tolerance_pixel = $RequirementTolerancePixel
     requirement_matching_count = $requirementSummary.matching_count
     requirement_matching_percent = $requirementSummary.matching_percent
@@ -337,7 +346,7 @@ $metadata | ConvertTo-Json -Depth 4 |
 
 Write-Host "Task$TaskNumber RAM capture exported: samples=$sampleCount, complete=$complete, overflow=$overflow"
 Write-Host ("Requirement {0:F1} +/-{1:F1} pixel: {2}/{3} samples ({4:F1}%)" -f
-    $RequirementTargetPixel, $RequirementTolerancePixel,
+    $analysisTargetPixel, $RequirementTolerancePixel,
     $requirementSummary.matching_count, $requirementSummary.sample_count,
     $requirementSummary.matching_percent)
 foreach ($phaseSummary in $task3PhaseSummaries)
