@@ -114,16 +114,30 @@ typedef struct
     float acceleration_feedforward_limit_rad;       // 正向加速前馈角限幅(rad)
     float acceleration_brake_feedforward_limit_rad; // 刹车减速前馈角限幅(rad)
     volatile float acceleration_feedforward_angle_rad;
+    uint8_t curve_feedforward_enabled;               // 任务4/5是否启用底盘差速弯道前馈
+    float curve_speed_difference_deadband_rad_s;     // 左右轮有符号半差死区(rad/s)
+    float curve_feedforward_filter_alpha;             // 弯道加速度代理低通系数[0,1]
+    float curve_feedforward_gain;                     // 弯道代理到球杆角的增益(rad/(rad/s)^2)
+    float curve_feedforward_limit_rad;                // 弯道补偿球杆角限幅(rad)
+    volatile uint8_t curve_section_index;              // 当前识别到的弯道编号，0表示尚未进入第一弯
+    volatile uint8_t curve_section_active;             // 1表示当前仍处于已确认的弯道区间
+    volatile uint8_t curve_section_enter_count;        // 入弯连续确认次数，由TIM4以50 Hz更新
+    volatile uint8_t curve_section_exit_count;         // 出弯连续确认次数，由TIM4以50 Hz更新
+    volatile float curve_speed_difference_rad_s;      // 左右轮当前有符号半差(rad/s)
+    volatile float curve_acceleration_proxy_rad2_s2;  // 平均轮速与有符号半差乘积(rad^2/s^2)
+    volatile float curve_feedforward_angle_rad;       // 实际加入球杆指令的弯道前馈角(rad)
 } Task3SegmentedControl_t;
 
-// 视觉约42 Hz时600个样本可记录约14 s，覆盖任务2~6主要运动过程。
+// 视觉约42 Hz时：任务2/3/6约14 s，任务4/5二分频后约28 s。
 #define TASK3_DEBUG_SAMPLE_CAPACITY 600U
 
 /**
- * @brief 任务2~6单片机内部调试样本，每个视觉新包记录一次。
+ * @brief 任务2~6单片机内部调试样本。
  * @note 角度单位为rad，速度单位为pixel/s，加速度单位为rad/s^2；
- *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。任务2样本中的
- *       任务2/6的motion_active保存Task2Stage_e阶段值，任务3/4/5中表示底盘是否运动。
+ *       数据由TIM4回调更新，只用于离线调参，不参与控制计算。任务2/3/6
+ *       每个视觉新包记录，任务4/5每两个新包记录；任务2样本中的
+ *       任务2/6的motion_active保存Task2Stage_e阶段值，任务3/4/5中表示底盘是否运动；
+ *       curve_section_index/active记录差速识别出的弯道编号及弯道状态。
  */
 typedef struct
 {
@@ -134,6 +148,8 @@ typedef struct
     uint16_t point_x;
     uint8_t segment;
     uint8_t motion_active;
+    uint8_t curve_section_index;
+    uint8_t curve_section_active;
     float effective_target_pixel;
     float pid_kp;
     float pid_ki;
@@ -150,6 +166,9 @@ typedef struct
     float raw_acceleration_rad_s2;
     float filtered_acceleration_rad_s2;
     float feedforward_angle_rad;
+    float curve_speed_difference_rad_s;
+    float curve_acceleration_proxy_rad2_s2;
+    float curve_feedforward_angle_rad;
     float motor_target_angle_rad;
     float motor_position_rad;
     float motor_velocity_rad_s;
@@ -165,7 +184,7 @@ typedef struct
 /**
  * @brief 任务2~6复用的内部记录器状态及连续样本缓存。
  * @note task_id为2~6，用于标识当前数据来源；各任务不会同时运行，因此
- *       复用缓存可避免额外占用约78 KB RAM。overflow表示缓存写满、样本被截断。
+ *       复用缓存可避免额外占用约82 KiB RAM。overflow表示缓存写满、样本被截断。
  */
 typedef struct
 {
@@ -174,7 +193,8 @@ typedef struct
     volatile uint8_t complete;
     volatile uint8_t overflow;
     volatile uint8_t task_id;
-    uint8_t reserved[2];
+    uint8_t sample_divider;       // 每多少个视觉新包保存一次，1表示逐包记录
+    uint8_t sample_divider_count; // 当前分频计数，只由TIM4更新
     Task3DebugSample_t samples[TASK3_DEBUG_SAMPLE_CAPACITY];
 } Task3DebugRecorder_t;
 

@@ -45,6 +45,15 @@
 #define BALL_VELOCITY_FEEDBACK_TASK2_SEGMENTED_LIMIT_RAD 0.06981317f
 #define BALL_VELOCITY_FEEDBACK_TASK3_LIMIT_RAD 0.06981317f
 #define BALL_VELOCITY_MAX_VALID_INTERVAL_MS 100U
+// 弯道前馈仅使用100 ms内的底盘CAN反馈，超时立即撤除补偿，避免持续错误倾斜。
+#define CURVE_FEEDFORWARD_MOTOR_TIMEOUT_MS 100U
+// TIM4为50 Hz：连续100 ms确认入弯，连续300 ms小差速确认出弯。
+#define CURVE_SECTION_ENTER_CONFIRM_COUNT 5U
+#define CURVE_SECTION_EXIT_CONFIRM_COUNT 15U
+#define CURVE_SECTION_EXIT_DEADBAND_SCALE 0.5f
+// 当前赛道只允许第二个已确认弯道使用差速前馈。
+#define CURVE_FEEDFORWARD_ACTIVE_SECTION 2U
+#define CURVE_FEEDFORWARD_DEFAULT_DEADBAND_RAD_S 0.08f
 
 /*
  * 四连杆杆长，单位mm：D、C为固定铰点，AD为电机主动杆，
@@ -147,6 +156,18 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
     .acceleration_feedforward_limit_rad = 0.08726646f, // 正向启动前馈限幅+5°，减小启动瞬间跳动
     .acceleration_brake_feedforward_limit_rad = 0.10471976f, // 刹车前馈角限幅-6°
     .acceleration_feedforward_angle_rad = 0.0f,
+    .curve_feedforward_enabled = 0U,
+    .curve_speed_difference_deadband_rad_s = 0.08f,
+    .curve_feedforward_filter_alpha = 0.25f,
+    .curve_feedforward_gain = 0.0f,
+    .curve_feedforward_limit_rad = 0.01745329f,
+    .curve_section_index = 0U,
+    .curve_section_active = 0U,
+    .curve_section_enter_count = 0U,
+    .curve_section_exit_count = 0U,
+    .curve_speed_difference_rad_s = 0.0f,
+    .curve_acceleration_proxy_rad2_s2 = 0.0f,
+    .curve_feedforward_angle_rad = 0.0f,
 };
 
 // 任务2~6调参数据复用一个连续结构体，便于运行后由DAP一次性读取。
@@ -224,6 +245,8 @@ void Task2DebugRecorder_Start(void)
     task3_debug_recorder.overflow = 0U;
     task3_debug_recorder.complete = 0U;
     task3_debug_recorder.task_id = 2U;
+    task3_debug_recorder.sample_divider = 1U;
+    task3_debug_recorder.sample_divider_count = 0U;
     task2_debug_start_tick_ms = HAL_GetTick();
     task3_debug_recorder.recording = 1U;
 }
@@ -241,6 +264,8 @@ void Task2SpecialDebugRecorder_Start(void)
     task3_debug_recorder.overflow = 0U;
     task3_debug_recorder.complete = 0U;
     task3_debug_recorder.task_id = 6U;
+    task3_debug_recorder.sample_divider = 1U;
+    task3_debug_recorder.sample_divider_count = 0U;
     task2_debug_start_tick_ms = HAL_GetTick();
     task3_debug_recorder.recording = 1U;
 }
@@ -258,13 +283,16 @@ void Task3DebugRecorder_Start(void)
     task3_debug_recorder.overflow = 0U;
     task3_debug_recorder.complete = 0U;
     task3_debug_recorder.task_id = 3U;
+    task3_debug_recorder.sample_divider = 1U;
+    task3_debug_recorder.sample_divider_count = 0U;
     task3_debug_recorder.recording = 1U;
 }
 
 /**
  * @brief 清空共享RAM缓存并启动任务4内部数据记录器。
  * @note 调用前应确认本次即将执行任务4；函数不包含循环、延时或通信操作，
- *       只清除记录状态，不改变球杆参数、底盘路线或电机输出。
+ *       只清除记录状态，不改变球杆参数、底盘路线或电机输出。任务4每两个
+ *       视觉新包保存一次，使600点缓存可覆盖约30 s并记录到第二弯道。
  */
 void Task4DebugRecorder_Start(void)
 {
@@ -274,13 +302,16 @@ void Task4DebugRecorder_Start(void)
     task3_debug_recorder.overflow = 0U;
     task3_debug_recorder.complete = 0U;
     task3_debug_recorder.task_id = 4U;
+    task3_debug_recorder.sample_divider = 2U;
+    task3_debug_recorder.sample_divider_count = 1U;
     task3_debug_recorder.recording = 1U;
 }
 
 /**
  * @brief 清空共享RAM缓存并启动任务5内部数据记录器。
  * @note 调用前应已捕获任务5固定目标且即将启动底盘；函数不包含循环、延时或
- *       通信，只清除记录状态，不改变目标坐标、控制参数或电机输出。
+ *       通信，只清除记录状态，不改变目标坐标、控制参数或电机输出。任务5与
+ *       任务4使用相同路线，因此同样每两个视觉新包保存一次。
  */
 void Task5DebugRecorder_Start(void)
 {
@@ -290,6 +321,8 @@ void Task5DebugRecorder_Start(void)
     task3_debug_recorder.overflow = 0U;
     task3_debug_recorder.complete = 0U;
     task3_debug_recorder.task_id = 5U;
+    task3_debug_recorder.sample_divider = 2U;
+    task3_debug_recorder.sample_divider_count = 1U;
     task3_debug_recorder.recording = 1U;
 }
 
@@ -321,6 +354,22 @@ static void Task345DebugRecorder_Record(float current_position,
         return;
     }
 
+    /*
+     * 任务4/5以二分频记录扩大时间覆盖范围；只降低调试采样率，不改变视觉
+     * 位置环和TIM4控制频率。sample_divider非法为0时按逐包记录处理。
+     */
+    if (task3_debug_recorder.sample_divider == 0U)
+    {
+        task3_debug_recorder.sample_divider = 1U;
+    }
+    task3_debug_recorder.sample_divider_count++;
+    if (task3_debug_recorder.sample_divider_count <
+        task3_debug_recorder.sample_divider)
+    {
+        return;
+    }
+    task3_debug_recorder.sample_divider_count = 0U;
+
     sample_index = task3_debug_recorder.sample_count;
     if (sample_index >= TASK3_DEBUG_SAMPLE_CAPACITY)
     {
@@ -340,6 +389,10 @@ static void Task345DebugRecorder_Record(float current_position,
     sample->point_x = (uint16_t)current_position;
     sample->segment = (uint8_t)task3_segmented_control.active_segment;
     sample->motion_active = chassis_motion_timing_active;
+    sample->curve_section_index =
+        task3_segmented_control.curve_section_index;
+    sample->curve_section_active =
+        task3_segmented_control.curve_section_active;
     sample->effective_target_pixel = effective_target_position;
     sample->pid_kp = PID_DM_Pitch_Position.Kp;
     sample->pid_ki = PID_DM_Pitch_Position.Ki;
@@ -359,6 +412,12 @@ static void Task345DebugRecorder_Record(float current_position,
     sample->filtered_acceleration_rad_s2 =
         task3_segmented_control.chassis_acceleration_rad_s2;
     sample->feedforward_angle_rad = feedforward_angle_rad;
+    sample->curve_speed_difference_rad_s =
+        task3_segmented_control.curve_speed_difference_rad_s;
+    sample->curve_acceleration_proxy_rad2_s2 =
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2;
+    sample->curve_feedforward_angle_rad =
+        task3_segmented_control.curve_feedforward_angle_rad;
     sample->motor_target_angle_rad = ball_balance_motor_target_angle_rad;
     sample->motor_position_rad = pitch_motor->Position;
     sample->motor_velocity_rad_s = pitch_motor->Omega;
@@ -428,6 +487,8 @@ static void Task2DebugRecorder_Record(float current_position,
         (uint8_t)task2_segmented_control.active_segment : 0xFFU;
     // 任务2复用motion_active字节保存阶段：1为去+5 cm，2为去-5 cm。
     sample->motion_active = (uint8_t)task_2_stage;
+    sample->curve_section_index = 0U;
+    sample->curve_section_active = 0U;
     sample->effective_target_pixel = effective_target_position;
     sample->pid_kp = PID_DM_Pitch_Position.Kp;
     sample->pid_ki = PID_DM_Pitch_Position.Ki;
@@ -445,6 +506,9 @@ static void Task2DebugRecorder_Record(float current_position,
     sample->raw_acceleration_rad_s2 = 0.0f;
     sample->filtered_acceleration_rad_s2 = 0.0f;
     sample->feedforward_angle_rad = 0.0f;
+    sample->curve_speed_difference_rad_s = 0.0f;
+    sample->curve_acceleration_proxy_rad2_s2 = 0.0f;
+    sample->curve_feedforward_angle_rad = 0.0f;
     sample->motor_target_angle_rad = ball_balance_motor_target_angle_rad;
     sample->motor_position_rad = pitch_motor->Position;
     sample->motor_velocity_rad_s = pitch_motor->Omega;
@@ -582,6 +646,14 @@ void BallBalanceControl_Pause(void)
     ball_balance_velocity_feedback_angle_rad = 0.0f;
     ball_balance_rod_target_angle_rad = 0.0f;
     ball_balance_velocity_initialized = 0U;
+    // 暂停TIM4后不会再进入前馈更新函数，因此在此主动清除弯道残值。
+    task3_segmented_control.curve_section_index = 0U;
+    task3_segmented_control.curve_section_active = 0U;
+    task3_segmented_control.curve_section_enter_count = 0U;
+    task3_segmented_control.curve_section_exit_count = 0U;
+    task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+    task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+    task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
 }
 
 /**
@@ -679,6 +751,13 @@ void Task3SegmentedControl_Enable(void)
     task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
     task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
     task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
+    task3_segmented_control.curve_section_index = 0U;
+    task3_segmented_control.curve_section_active = 0U;
+    task3_segmented_control.curve_section_enter_count = 0U;
+    task3_segmented_control.curve_section_exit_count = 0U;
+    task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+    task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+    task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
     task3_segmented_control.enabled = 1U;
 }
 
@@ -707,6 +786,13 @@ void Task3SegmentedControl_Disable(void)
     task3_segmented_control.chassis_acceleration_raw_rad_s2 = 0.0f;
     task3_segmented_control.chassis_acceleration_rad_s2 = 0.0f;
     task3_segmented_control.acceleration_feedforward_angle_rad = 0.0f;
+    task3_segmented_control.curve_section_index = 0U;
+    task3_segmented_control.curve_section_active = 0U;
+    task3_segmented_control.curve_section_enter_count = 0U;
+    task3_segmented_control.curve_section_exit_count = 0U;
+    task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+    task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+    task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
 }
 
 /**
@@ -1066,6 +1152,252 @@ static float Task3AccelerationFeedforwardUpdate(void)
 }
 
 /**
+ * @brief 用左右轮差速的持续时间识别当前是第几个弯道。
+ * @param absolute_speed_difference 左右轮前进速度半差的绝对值，单位rad/s。
+ * @param enter_deadband 入弯判断阈值，单位rad/s，必须为有效正数。
+ * @retval 1表示当前处于第二个已确认弯道；0表示直道、第一弯或后续弯道。
+ * @note 函数只由TIM4以50 Hz调用，无循环、延时和通信。连续5次超过阈值才
+ *       确认入弯，连续15次低于半阈值才确认出弯，避免循迹瞬时修正重复计数。
+ *       任务启用、暂停或结束时弯道编号会复位。
+ */
+static uint8_t Task45CurveSectionUpdate(float absolute_speed_difference,
+                                        float enter_deadband)
+{
+    float exit_deadband =
+        enter_deadband * CURVE_SECTION_EXIT_DEADBAND_SCALE;
+
+    if (task3_segmented_control.curve_section_active == 0U)
+    {
+        task3_segmented_control.curve_section_exit_count = 0U;
+        if (absolute_speed_difference >= enter_deadband)
+        {
+            if (task3_segmented_control.curve_section_enter_count <
+                CURVE_SECTION_ENTER_CONFIRM_COUNT)
+            {
+                task3_segmented_control.curve_section_enter_count++;
+            }
+
+            if (task3_segmented_control.curve_section_enter_count >=
+                CURVE_SECTION_ENTER_CONFIRM_COUNT)
+            {
+                task3_segmented_control.curve_section_enter_count = 0U;
+                task3_segmented_control.curve_section_active = 1U;
+                if (task3_segmented_control.curve_section_index < 255U)
+                {
+                    task3_segmented_control.curve_section_index++;
+                }
+            }
+        }
+        else
+        {
+            task3_segmented_control.curve_section_enter_count = 0U;
+        }
+    }
+    else
+    {
+        task3_segmented_control.curve_section_enter_count = 0U;
+        if (absolute_speed_difference <= exit_deadband)
+        {
+            if (task3_segmented_control.curve_section_exit_count <
+                CURVE_SECTION_EXIT_CONFIRM_COUNT)
+            {
+                task3_segmented_control.curve_section_exit_count++;
+            }
+
+            if (task3_segmented_control.curve_section_exit_count >=
+                CURVE_SECTION_EXIT_CONFIRM_COUNT)
+            {
+                task3_segmented_control.curve_section_exit_count = 0U;
+                task3_segmented_control.curve_section_active = 0U;
+            }
+        }
+        else
+        {
+            task3_segmented_control.curve_section_exit_count = 0U;
+        }
+    }
+
+    return ((task3_segmented_control.curve_section_active != 0U) &&
+            (task3_segmented_control.curve_section_index ==
+             CURVE_FEEDFORWARD_ACTIVE_SECTION)) ? 1U : 0U;
+}
+
+/**
+ * @brief 根据两台底盘电机实际差速计算任务4/5弯道球杆前馈角。
+ * @retval 弯道球杆前馈角，单位rad；正值对应正球杆角，负值对应负球杆角。
+ * @note 左轮前进速度取-Chassis_Motor[0].Omega，右轮取+Chassis_Motor[1].Omega；
+ *       使用“平均前进轮速×左右轮有符号半差”作为向心加速度代理。函数由
+ *       TIM4以50 Hz调用，无循环、延时和通信。底盘运动计时未启用、任一反馈
+ *       超过100 ms无更新、数据非法或功能关闭时立即清零，最终输出还受独立
+ *       角度限幅保护。
+ */
+static float Task45CurveDifferentialFeedforwardUpdate(void)
+{
+    const volatile DM_Motor_t *left_motor = &Chassis_Motor[0];
+    const volatile DM_Motor_t *right_motor = &Chassis_Motor[1];
+    uint32_t now_ms = HAL_GetTick();
+    float left_forward_speed;
+    float right_forward_speed;
+    float average_forward_speed;
+    float speed_difference;
+    float acceleration_proxy = 0.0f;
+    float filter_alpha =
+        task3_segmented_control.curve_feedforward_filter_alpha;
+    float deadband =
+        task3_segmented_control.curve_speed_difference_deadband_rad_s;
+    float gain = task3_segmented_control.curve_feedforward_gain;
+    float limit = task3_segmented_control.curve_feedforward_limit_rad;
+    float feedforward_angle;
+    uint8_t feedback_valid;
+
+    if (task3_segmented_control.curve_feedforward_enabled == 0U)
+    {
+        task3_segmented_control.curve_section_index = 0U;
+        task3_segmented_control.curve_section_active = 0U;
+        task3_segmented_control.curve_section_enter_count = 0U;
+        task3_segmented_control.curve_section_exit_count = 0U;
+        task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+        task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
+        return 0.0f;
+    }
+
+    if (chassis_motion_timing_active == 0U)
+    {
+        // 底盘未处于任务运动阶段时立即撤除弯道项，不保留低通滤波残值。
+        task3_segmented_control.curve_section_index = 0U;
+        task3_segmented_control.curve_section_active = 0U;
+        task3_segmented_control.curve_section_enter_count = 0U;
+        task3_segmented_control.curve_section_exit_count = 0U;
+        task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+        task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
+        return 0.0f;
+    }
+
+    feedback_valid =
+        (left_motor->LastFeedbackTime != 0U) &&
+        (right_motor->LastFeedbackTime != 0U) &&
+        ((uint32_t)(now_ms - left_motor->LastFeedbackTime) <=
+         CURVE_FEEDFORWARD_MOTOR_TIMEOUT_MS) &&
+        ((uint32_t)(now_ms - right_motor->LastFeedbackTime) <=
+         CURVE_FEEDFORWARD_MOTOR_TIMEOUT_MS);
+
+    left_forward_speed = -left_motor->Omega;
+    right_forward_speed = right_motor->Omega;
+    if ((feedback_valid == 0U) ||
+        (left_forward_speed != left_forward_speed) ||
+        (right_forward_speed != right_forward_speed) ||
+        (fabsf(left_forward_speed) > V_MAX) ||
+        (fabsf(right_forward_speed) > V_MAX))
+    {
+        // CAN反馈失效时不允许保留滤波残值，避免球杆持续向错误方向倾斜。
+        task3_segmented_control.curve_section_enter_count = 0U;
+        task3_segmented_control.curve_section_exit_count = 0U;
+        task3_segmented_control.curve_speed_difference_rad_s = 0.0f;
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+        task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
+        return 0.0f;
+    }
+
+    average_forward_speed =
+        0.5f * (left_forward_speed + right_forward_speed);
+    speed_difference =
+        0.5f * (left_forward_speed - right_forward_speed);
+    task3_segmented_control.curve_speed_difference_rad_s = speed_difference;
+
+    if ((deadband != deadband) ||
+        (deadband < 0.001f) ||
+        (deadband > V_MAX))
+    {
+        deadband = CURVE_FEEDFORWARD_DEFAULT_DEADBAND_RAD_S;
+    }
+
+    /*
+     * 第一弯只参与弯道编号，不计算也不保留补偿；只有第二弯确认后才进入
+     * 后续代理量、滤波和限幅计算。
+     */
+    if (Task45CurveSectionUpdate(fabsf(speed_difference), deadband) == 0U)
+    {
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+        task3_segmented_control.curve_feedforward_angle_rad = 0.0f;
+        return 0.0f;
+    }
+    if (fabsf(speed_difference) >= deadband)
+    {
+        acceleration_proxy = average_forward_speed * speed_difference;
+    }
+
+    if ((filter_alpha != filter_alpha) || (filter_alpha <= 0.0f))
+    {
+        /*
+         * 非法系数或0不能冻结旧的弯道补偿，回退1使本周期立即跟随新代理量，
+         * 直道或停车时也能立即回零。
+         */
+        filter_alpha = 1.0f;
+    }
+    else if (filter_alpha > 1.0f)
+    {
+        filter_alpha = 1.0f;
+    }
+    if ((task3_segmented_control.curve_acceleration_proxy_rad2_s2 !=
+         task3_segmented_control.curve_acceleration_proxy_rad2_s2) ||
+        (fabsf(task3_segmented_control.curve_acceleration_proxy_rad2_s2) >
+         (V_MAX * V_MAX)))
+    {
+        // 防止调试器误写运行态后，NaN或无穷值穿透到电机CAN指令。
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+    }
+    task3_segmented_control.curve_acceleration_proxy_rad2_s2 +=
+        filter_alpha *
+        (acceleration_proxy -
+         task3_segmented_control.curve_acceleration_proxy_rad2_s2);
+
+    if ((gain != gain) || (fabsf(gain) > 0.20f))
+    {
+        // LinkScope误写非法或过大增益时关闭本项输出。
+        gain = 0.0f;
+    }
+    if ((limit != limit) || (limit < 0.0f))
+    {
+        limit = 0.0f;
+    }
+    else if (limit > BALL_BALANCE_MAX_TILT_ANGLE_RAD)
+    {
+        limit = BALL_BALANCE_MAX_TILT_ANGLE_RAD;
+    }
+
+    if (limit <= 0.0f)
+    {
+        feedforward_angle = 0.0f;
+    }
+    else
+    {
+        feedforward_angle =
+            gain *
+            task3_segmented_control.curve_acceleration_proxy_rad2_s2;
+        if (feedforward_angle > limit)
+        {
+            feedforward_angle = limit;
+        }
+        else if (feedforward_angle < -limit)
+        {
+            feedforward_angle = -limit;
+        }
+    }
+
+    if (feedforward_angle != feedforward_angle)
+    {
+        // 最终发布前再次拦截NaN，并清除其来源，下一周期可从0恢复。
+        task3_segmented_control.curve_acceleration_proxy_rad2_s2 = 0.0f;
+        feedforward_angle = 0.0f;
+    }
+    task3_segmented_control.curve_feedforward_angle_rad =
+        feedforward_angle;
+    return feedforward_angle;
+}
+
+/**
  * @brief 小球已向高像素回摆时锁定撤除本轮运动的正向加速度前馈。
  * @param feedforward_angle_rad 本周期原始加速度前馈角，单位rad。
  * @param current_position 当前视觉横坐标，单位pixel，来自UART4有效数据包。
@@ -1382,6 +1714,7 @@ void position_control(float target_position,
     float velocity_feedback_angle =
         BallVelocityFeedbackUpdate(current_position);
     float transition_high_brake_angle = 0.0f;
+    float curve_feedforward_angle = 0.0f;
     float ball_rod_target_angle;
 
     if (task3_segmented_control.enabled != 0U)
@@ -1390,6 +1723,12 @@ void position_control(float target_position,
         feedforward_angle_rad =
             Task3StartupFeedforwardGuard(feedforward_angle_rad,
                                          current_position);
+        /*
+         * 弯道项在启动前馈保护之后独立叠加，避免被启动阶段的撤除锁存误判。
+         * 该值由TIM4本周期使用底盘CAN反馈更新。
+         */
+        curve_feedforward_angle =
+            task3_segmented_control.curve_feedforward_angle_rad;
     }
 
     // 有新视觉包时使用最新位置刷新高像素侧软制动角。
@@ -1398,7 +1737,8 @@ void position_control(float target_position,
 
     ball_rod_target_angle =
         position_loop_output + velocity_feedback_angle +
-        feedforward_angle_rad + transition_high_brake_angle;
+        feedforward_angle_rad + curve_feedforward_angle +
+        transition_high_brake_angle;
 
     ball_balance_velocity_feedback_angle_rad = velocity_feedback_angle;
     BallBalanceRodAngleCommandSend(ball_rod_target_angle);
@@ -1483,7 +1823,8 @@ void ChassisTrack3_Run(void)
 }
 /**
  * @brief HAL定时器周期回调。
- * @note TIM3每10 ms查询一次灰度模块；TIM4每20 ms更新任务3加速度前馈，
+ * @note TIM3每10 ms查询一次灰度模块；TIM4每20 ms更新任务3~5加速度前馈，
+ *       任务4/5还会同周期更新底盘差速弯道前馈；
  *       位置PID和视觉速度反馈仍只在收到新视觉帧时更新。
  *       回调中不进行OLED刷新，避免软件I2C阻塞中断。
  */
@@ -1502,6 +1843,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         float current_target_position;
         float current_target_tolerance_pixel;
         float feedforward_angle_rad = 0.0f;
+        float curve_feedforward_angle_rad = 0.0f;
         float transition_high_brake_angle_rad = 0.0f;
 
         if (ball_balance_control_enabled == 0U)
@@ -1520,6 +1862,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             Task3ChassisAccelerationUpdate();
             feedforward_angle_rad =
                 Task3AccelerationFeedforwardUpdate();
+            curve_feedforward_angle_rad =
+                Task45CurveDifferentialFeedforwardUpdate();
         }
 
         if ((current_packet_count == 0U) ||
@@ -1539,6 +1883,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                     PID_DM_Pitch_Position.Output +
                     ball_balance_velocity_feedback_angle_rad +
                     feedforward_angle_rad +
+                    curve_feedforward_angle_rad +
                     transition_high_brake_angle_rad);
             }
             return;

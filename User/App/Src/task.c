@@ -387,6 +387,12 @@ static void Task3_BallControlParamsApply(void)
         0.10471976f;
     task3_segmented_control.acceleration_filter_alpha = 1.0f;
     task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    // 任务3只跑直线，明确关闭弯道差速前馈，避免任务4参数遗留到下一次任务3。
+    task3_segmented_control.curve_feedforward_enabled = 0U;
+    task3_segmented_control.curve_speed_difference_deadband_rad_s = 0.08f;
+    task3_segmented_control.curve_feedforward_filter_alpha = 0.25f;
+    task3_segmented_control.curve_feedforward_gain = 0.0f;
+    task3_segmented_control.curve_feedforward_limit_rad = 0.01745329f;
     // 任务3始终使用工程默认绝对零点，避免继承任务5临时软件基准。
     task3_segmented_control.motor_zero_angle_rad = 0.0f;
     task3_segmented_control.pitch_motor_kp = 3.5f;
@@ -441,6 +447,16 @@ static void Task4_BallControlParamsApply(void)
         0.10471976f;
     task3_segmented_control.acceleration_filter_alpha = 1.0f;
     task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    /*
+     * 任务4/5根据两台底盘电机反馈计算有符号弯道前馈：第一弯只识别编号，
+     * 第二弯才输出补偿，直道及其他弯道均输出0。0.08 rad/s死区滤除直道
+     * 轮速误差；实际增益由下面变量独立调节，最终由1°限幅保留安全余量。
+     */
+    task3_segmented_control.curve_feedforward_enabled = 1U;
+    task3_segmented_control.curve_speed_difference_deadband_rad_s = 0.08f;
+    task3_segmented_control.curve_feedforward_filter_alpha = 0.25f;
+    task3_segmented_control.curve_feedforward_gain = -0.020f;
+    task3_segmented_control.curve_feedforward_limit_rad = 0.01745329f;
     // 任务4仍使用工程默认绝对零点；任务5会在复制参数后单独覆盖该字段。
     task3_segmented_control.motor_zero_angle_rad = 0.0f;
     task3_segmented_control.pitch_motor_kp = 3.5f;

@@ -34,7 +34,8 @@ foreach ($requiredPath in @($axfPath, $gdbPath, $openOcdPath, $openOcdScripts))
     }
 }
 
-# 片上记录器已经按视觉新包保存数据，读取时只需短暂停核并一次性导出RAM。
+# 片上记录器按视觉新包保存数据；任务4/5为覆盖第二弯道而采用二分频记录。
+# 读取时只需短暂停核并一次性导出RAM，不改变控制参数或任务状态。
 $otherOpenOcd = Get-Process -Name 'openocd' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $openOcdPath }
 if ($null -ne $otherOpenOcd)
@@ -50,6 +51,8 @@ $sampleFields = @(
     @{ Name = 'point_x'; Type = 'u16' },
     @{ Name = 'segment'; Type = 'u8' },
     @{ Name = 'motion_active'; Type = 'u8' },
+    @{ Name = 'curve_section_index'; Type = 'u8' },
+    @{ Name = 'curve_section_active'; Type = 'u8' },
     @{ Name = 'effective_target_pixel'; Type = 'float' },
     @{ Name = 'pid_kp'; Type = 'float' },
     @{ Name = 'pid_ki'; Type = 'float' },
@@ -66,6 +69,9 @@ $sampleFields = @(
     @{ Name = 'raw_acceleration_rad_s2'; Type = 'float' },
     @{ Name = 'filtered_acceleration_rad_s2'; Type = 'float' },
     @{ Name = 'feedforward_angle_rad'; Type = 'float' },
+    @{ Name = 'curve_speed_difference_rad_s'; Type = 'float' },
+    @{ Name = 'curve_acceleration_proxy_rad2_s2'; Type = 'float' },
+    @{ Name = 'curve_feedforward_angle_rad'; Type = 'float' },
     @{ Name = 'motor_target_angle_rad'; Type = 'float' },
     @{ Name = 'motor_position_rad'; Type = 'float' },
     @{ Name = 'motor_velocity_rad_s'; Type = 'float' },
@@ -82,6 +88,7 @@ $sampleFields = @(
 if (($TaskNumber -eq 2) -or ($TaskNumber -eq 6))
 {
     $configSymbol = 'task2_segmented_control'
+    $configByteFields = @()
     $configFields = @(
         'near_error_limit_pixel',
         'middle_error_limit_pixel',
@@ -97,6 +104,7 @@ if (($TaskNumber -eq 2) -or ($TaskNumber -eq 6))
 else
 {
     $configSymbol = 'task3_segmented_control'
+    $configByteFields = @('curve_feedforward_enabled')
     $configFields = @(
         'near_error_limit_pixel',
         'middle_error_limit_pixel',
@@ -121,7 +129,11 @@ else
         'brake_release_filter_alpha',
         'acceleration_feedforward_gain',
         'acceleration_feedforward_limit_rad',
-        'acceleration_brake_feedforward_limit_rad'
+        'acceleration_brake_feedforward_limit_rad',
+        'curve_speed_difference_deadband_rad_s',
+        'curve_feedforward_filter_alpha',
+        'curve_feedforward_gain',
+        'curve_feedforward_limit_rad'
     )
 }
 
@@ -133,6 +145,8 @@ $queries = [ordered]@{
     complete = '&task3_debug_recorder.complete'
     overflow = '&task3_debug_recorder.overflow'
     task_id = '&task3_debug_recorder.task_id'
+    sample_divider = '&task3_debug_recorder.sample_divider'
+    sample_divider_count = '&task3_debug_recorder.sample_divider_count'
     sample_0 = '&task3_debug_recorder.samples[0]'
     sample_1 = '&task3_debug_recorder.samples[1]'
     config_base = "&$configSymbol"
@@ -147,6 +161,11 @@ for ($index = 0; $index -lt $configFields.Count; $index++)
 {
     $queries["config_$index"] =
         "&$configSymbol.$($configFields[$index])"
+}
+for ($index = 0; $index -lt $configByteFields.Count; $index++)
+{
+    $queries["config_byte_$index"] =
+        "&$configSymbol.$($configByteFields[$index])"
 }
 
 $gdbArguments = @('-batch', '-ex', ('file ' + ($axfPath -replace '\\', '/')))
@@ -234,12 +253,19 @@ $recordingOffset = [int]([uint64]$values.recording - $recorderBase)
 $completeOffset = [int]([uint64]$values.complete - $recorderBase)
 $overflowOffset = [int]([uint64]$values.overflow - $recorderBase)
 $taskIdOffset = [int]([uint64]$values.task_id - $recorderBase)
+$sampleDividerOffset =
+    [int]([uint64]$values.sample_divider - $recorderBase)
+$sampleDividerCountOffset =
+    [int]([uint64]$values.sample_divider_count - $recorderBase)
 $samplesOffset = [int]($sampleBase - $recorderBase)
 $sampleCount = [int](Read-Value $bufferBytes $countOffset 'u16')
 $recording = [int](Read-Value $bufferBytes $recordingOffset 'u8')
 $complete = [int](Read-Value $bufferBytes $completeOffset 'u8')
 $overflow = [int](Read-Value $bufferBytes $overflowOffset 'u8')
 $taskId = [int](Read-Value $bufferBytes $taskIdOffset 'u8')
+$sampleDivider = [int](Read-Value $bufferBytes $sampleDividerOffset 'u8')
+$sampleDividerCount =
+    [int](Read-Value $bufferBytes $sampleDividerCountOffset 'u8')
 $capacity = [int](($bufferBytes.Length - $samplesOffset) / $sampleStride)
 if ($sampleCount -gt $capacity)
 {
@@ -329,6 +355,8 @@ $metadata = [ordered]@{
     recording = $recording
     complete = $complete
     overflow = $overflow
+    sample_divider = $sampleDivider
+    sample_divider_count = $sampleDividerCount
     requirement_target_pixel = $analysisTargetPixel
     requirement_tolerance_pixel = $RequirementTolerancePixel
     requirement_matching_count = $requirementSummary.matching_count
@@ -341,6 +369,13 @@ for ($index = 0; $index -lt $configFields.Count; $index++)
     $fieldOffset = [int]($fieldAddress - $configBase)
     $metadata[$configFields[$index]] =
         Read-Value $configBytes $fieldOffset 'float'
+}
+for ($index = 0; $index -lt $configByteFields.Count; $index++)
+{
+    $fieldAddress = [uint64]$values["config_byte_$index"]
+    $fieldOffset = [int]($fieldAddress - $configBase)
+    $metadata[$configByteFields[$index]] =
+        Read-Value $configBytes $fieldOffset 'u8'
 }
 $metadata | ConvertTo-Json -Depth 4 |
     Set-Content -LiteralPath $metaPath -Encoding UTF8
