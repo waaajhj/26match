@@ -21,8 +21,8 @@ uint8_t  JY61P_XY0_CMD  [5] = {0xFF, 0xAA, 0x01, 0x08, 0x00}; //XY角度归零
 uint8_t  JY61P_Z0_CMD   [5] = {0xFF, 0xAA, 0x01, 0x04, 0x00}; //Z轴归零
 
 /*
- * 串口屏任务状态由 USART2 单字节接收中断更新。
- * 主循环处理 serial_screen_task_ready 后负责将其清零，避免重复执行同一任务。
+ * 串口屏任务状态由 USART2 单字节接收中断更新，主循环根据最新任务号执行任务。
+ * serial_screen_task_ready 保留用于兼容原有调试观察，当前任务切换不依赖该变量。
  */
 volatile SerialScreenTask_e serial_screen_task = SERIAL_SCREEN_TASK_NONE;
 volatile uint8_t serial_screen_task_ready = 0U;
@@ -114,9 +114,9 @@ void jy61p_ReceiveData(uint8_t RxData)
  * @param rx_byte USART2 本次中断接收到的单字节数据。
  * @retval 无。
  * @note 调用前必须已初始化 USART2，并以单字节中断方式持续接收。
- *       帧格式固定为 0xAA + 任务号(1~6) + 0x55，共 3 字节。
- *       本函数不执行任务、不循环、不延时；任务 1 只更新状态，
- *       任务 2~6 会置 serial_screen_task_ready，交给主循环处理。
+ *       帧格式固定为 0xAA + 任务号(1~7) + 0x55，共 3 字节。
+ *       本函数不执行任务、不循环、不延时；完整任务帧只更新共享任务号，
+ *       由主循环执行任务。任务7保持失能期间仍可由本中断接收新任务并退出。
  *       非法任务号或错误包尾会被丢弃，状态机会等待下一个 0xAA 重新同步。
  */
 void SerialScreen_ReceiveData(uint8_t rx_byte)
@@ -132,7 +132,7 @@ void SerialScreen_ReceiveData(uint8_t rx_byte)
 
     case SERIAL_SCREEN_WAIT_TASK:
         if ((rx_byte >= (uint8_t)SERIAL_SCREEN_TASK_1) &&
-            (rx_byte <= (uint8_t)SERIAL_SCREEN_TASK_6))
+            (rx_byte <= (uint8_t)SERIAL_SCREEN_TASK_7))
         {
             serial_screen_task_candidate = rx_byte;
             serial_screen_rx_state = SERIAL_SCREEN_WAIT_FOOTER;

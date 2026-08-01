@@ -101,6 +101,7 @@ typedef struct
     Task3SegmentParam_t high_pixel_middle;
     Task3SegmentParam_t high_pixel_far;
     Task3SegmentParam_t normal;
+    float motor_zero_angle_rad;                  // 球杆水平时的软件电机基准(rad)，任务5可独立重标定
     float pitch_motor_kp;                         // 任务3达妙Pitch电机MIT位置刚度
     float pitch_motor_kd;                         // 任务3达妙Pitch电机MIT速度阻尼
     volatile float chassis_acceleration_raw_rad_s2; // S曲线指令加速度(rad/s^2)
@@ -201,7 +202,23 @@ void position_control(float target_position,
  */
 void BallBalanceControl_Start(float target_position,
                               float tolerance_pixel);
+
+/**
+ * @brief 暂停TIM4球杆闭环，但不发送任何CAN位置、使能或失能指令。
+ * @note 调用前要求TIM4和控制状态已初始化；函数无循环和延时。该接口用于任务7
+ *       切入失能前以及任务5捕获当前角度前，避免普通Stop接口主动回默认零位。
+ */
+void BallBalanceControl_Pause(void);
 void BallBalanceControl_Stop(void);
+
+/**
+ * @brief 将当前Pitch反馈角设置为任务3分段控制使用的软件水平基准。
+ * @param motor_position_rad Pitch电机CAN反馈的当前绝对角，单位rad，逆时针为正。
+ * @retval 1表示反馈角位于电控限位内并已设置；0表示非法或越界，配置未改变。
+ * @note 调用前应暂停TIM4并关闭任务3分段控制；函数无循环、延时和通信，不会修改
+ *       电机内部保存零点。最终控制目标仍通过DM_pos_limit执行绝对电控限位。
+ */
+uint8_t BallBalanceMotorHorizontalReferenceSet(float motor_position_rad);
 void BallBalanceControl_SetTarget(float target_position,
                                   float tolerance_pixel);
 void Task2SegmentedControl_Enable(void);

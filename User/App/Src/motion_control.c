@@ -135,6 +135,7 @@ volatile Task3SegmentedControl_t task3_segmented_control = {
         .Ki = 0.0f,
         .Kv = 0.0f,
     },
+    .motor_zero_angle_rad = BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD,
     .pitch_motor_kp = 3.5f,
     .pitch_motor_kd = 0.1f,
     .chassis_acceleration_raw_rad_s2 = 0.0f,
@@ -560,9 +561,12 @@ void BallBalanceControl_Start(float target_position,
 }
 
 /**
- * @brief 停止TIM4球杆闭环，并让球杆回到中立角度。
+ * @brief 暂停TIM4球杆闭环并清除本轮控制状态，不发送任何电机CAN指令。
+ * @retval 无。
+ * @note 调用前要求控制状态已初始化；函数无循环和延时。主循环调用后，TIM4回调
+ *       会立即停止发送球杆位置帧，适用于任务7失能及任务5读取当前角度前。
  */
-void BallBalanceControl_Stop(void)
+void BallBalanceControl_Pause(void)
 {
     ball_balance_control_enabled = 0U;
     ball_balance_target_in_range_count = 0U;
@@ -577,6 +581,17 @@ void BallBalanceControl_Stop(void)
     ball_balance_velocity_feedback_angle_rad = 0.0f;
     ball_balance_rod_target_angle_rad = 0.0f;
     ball_balance_velocity_initialized = 0U;
+}
+
+/**
+ * @brief 停止TIM4球杆闭环，并使能Pitch电机回到工程默认中立角。
+ * @retval 无。
+ * @note 调用前要求CAN和Pitch电机已经初始化；函数无循环和延时，但会发送一帧
+ *       MIT控制指令。任务7和任务5捕获角度前应改用BallBalanceControl_Pause()。
+ */
+void BallBalanceControl_Stop(void)
+{
+    BallBalanceControl_Pause();
     DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
                   BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD,
                   0.0f, 2.0f, 0.1f, 0.0f);
@@ -793,6 +808,38 @@ static float BallRodAngleToMotorAngle(float ball_rod_angle)
     }
 
     return atan2f(point_b_y, point_b_x) - acosf(acos_input);
+}
+
+/**
+ * @brief 将当前Pitch反馈角设置为任务5使用的软件水平基准。
+ * @param motor_position_rad Pitch电机当前绝对角，单位rad；来自CAN反馈，逆时针为正。
+ * @retval 1表示已更新基准；0表示参数为非有限值或超出[-1.1, 0.65] rad电控限位。
+ * @note 调用前必须先暂停TIM4并关闭任务3分段控制，避免并发读取。函数无循环、
+ *       延时和通信，也不会调用DMMotorZeroSet，因此不改变电机内部保存零点。
+ */
+uint8_t BallBalanceMotorHorizontalReferenceSet(float motor_position_rad)
+{
+    float horizontal_mapping_angle;
+
+    /*
+     * 合并写成一个逻辑表达式可同时拒绝NaN：NaN与上下限比较时均为假。
+     * 捕获位置只允许位于现有Pitch电控限位内，最终动态目标仍会再次限幅。
+     */
+    if (!((motor_position_rad >= DM_POS_LIMIT_MIN) &&
+          (motor_position_rad <= DM_POS_LIMIT_MAX)))
+    {
+        return 0U;
+    }
+
+    /*
+     * 四连杆浮点反解在0°处可能存在极小舍入量；先扣除该值可保证控制请求
+     * 为0°时，电机目标严格等于任务5捕获到的当前位置。
+     */
+    horizontal_mapping_angle = BallRodAngleToMotorAngle(0.0f);
+    task3_segmented_control.motor_zero_angle_rad =
+        motor_position_rad - horizontal_mapping_angle;
+
+    return 1U;
 }
 
 /**
@@ -1258,6 +1305,7 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
 {
     float motor_angle_offset;
     float motor_target_angle;
+    float motor_zero_angle = BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD;
     float motor_position_kp = 2.0f;
     float motor_velocity_kd = 0.1f;
 
@@ -1275,12 +1323,17 @@ static void BallBalanceRodAngleCommandSend(float ball_rod_target_angle)
     motor_angle_offset = BallRodAngleToMotorAngle(ball_rod_target_angle);
 
     /*
-     * 球杆目标角经四杆反解得到AD电机角度，再叠加电机零点，
-     * 最后通过达妙绝对电控限位[-1.1, 0.65] rad。
+     * 任务3/4每次启动都加载默认0 rad软件基准；仅任务5会把本字段改为启动时
+     * 捕获的电机角度偏置。任务2和任务6未启用该结构，因此保持原绝对零点。
      */
+    if (task3_segmented_control.enabled != 0U)
+    {
+        motor_zero_angle = task3_segmented_control.motor_zero_angle_rad;
+    }
+
+    // 四杆反解结果叠加当前任务软件基准后，仍执行[-1.1, 0.65] rad绝对电控限位。
     motor_target_angle =
-        DM_pos_limit(BALL_BALANCE_MOTOR_ZERO_ANGLE_RAD +
-                     motor_angle_offset);
+        DM_pos_limit(motor_zero_angle + motor_angle_offset);
     ball_balance_motor_target_angle_rad = motor_target_angle;
 
     /*

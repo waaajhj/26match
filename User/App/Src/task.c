@@ -1,6 +1,8 @@
 #include "task.h"
 
 #include "motion_control.h"
+#include "bsp_can.h"
+#include "DM_Motor.h"
 #include "jy61p.h"
 #include "maixcam.h"
 #include "pid.h"
@@ -18,6 +20,13 @@
 
 // 任务5启动前最多等待1 s的新视觉有效包；超时不会启动球杆和底盘。
 #define TASK_5_FIRST_VISUAL_TIMEOUT_MS 1000U
+// 任务5只接受100 ms内的Pitch CAN反馈，避免把断线前的旧角度作为新水平基准。
+#define TASK_5_MOTOR_FEEDBACK_TIMEOUT_MS 100U
+// 任务5使能握手最多等待100 ms，并以3 ms周期重发使能/清错请求。
+#define TASK_5_MOTOR_ENABLE_TIMEOUT_MS 100U
+#define TASK_5_MOTOR_ENABLE_RETRY_MS 3U
+// 任务7按用户要求每3 ms直接重发一次Pitch电机失能帧。
+#define TASK_7_DISABLE_PERIOD_MS 3U
 
 // 任务2阶段只在主循环修改，可在Keil Watch中观察当前目标阶段。
 volatile Task2Stage_e task_2_stage = TASK_2_STAGE_IDLE;
@@ -286,6 +295,8 @@ static void Task3_BallControlParamsApply(void)
         0.10471976f;
     task3_segmented_control.acceleration_filter_alpha = 1.0f;
     task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    // 任务3始终使用工程默认绝对零点，避免继承任务5临时软件基准。
+    task3_segmented_control.motor_zero_angle_rad = 0.0f;
     task3_segmented_control.pitch_motor_kp = 3.5f;
     // 实测Kd=0.2会扩大快速目标变化时的跟随滞后，任务3恢复原MIT速度阻尼0.1。
     task3_segmented_control.pitch_motor_kd = 0.1f;
@@ -338,6 +349,8 @@ static void Task4_BallControlParamsApply(void)
         0.10471976f;
     task3_segmented_control.acceleration_filter_alpha = 1.0f;
     task3_segmented_control.brake_release_filter_alpha = 0.65f;
+    // 任务4仍使用工程默认绝对零点；任务5会在复制参数后单独覆盖该字段。
+    task3_segmented_control.motor_zero_angle_rad = 0.0f;
     task3_segmented_control.pitch_motor_kp = 3.5f;
     task3_segmented_control.pitch_motor_kd = 0.1f;
 }
@@ -351,6 +364,66 @@ static void Task4_BallControlParamsApply(void)
 static void Task5_BallControlParamsApply(void)
 {
     Task4_BallControlParamsApply();
+}
+
+/**
+ * @brief 捕获Pitch电机当前角度作为任务5水平基准，并完成MIT模式使能和原位保持。
+ * @retval 1表示反馈有效、软件基准已设置且电机已经使能；0表示反馈无效、越界或
+ *         100 ms内未完成使能，调用者必须保持闭环停止并发送失能指令。
+ * @note 调用前必须执行BallBalanceControl_Pause()、关闭任务3分段控制并完成CAN
+ *       初始化。角度来自Gimbal_Motor[1]的CAN反馈，单位rad、逆时针为正；函数
+ *       最多阻塞100 ms，每3 ms重试一次，使能后只发送捕获角原位保持指令。
+ */
+static uint8_t Task5_MotorReferenceCaptureAndEnable(void)
+{
+    const DM_Motor_t *pitch_motor = get_gimbal_motor_measure_point(1U);
+    uint32_t now_ms = HAL_GetTick();
+    uint32_t enable_start_ms;
+    float captured_position_rad;
+
+    if ((pitch_motor->measure.ID != (uint8_t)DM_PITCH_TX_ID) ||
+        (pitch_motor->LastFeedbackTime == 0U) ||
+        ((uint32_t)(now_ms - pitch_motor->LastFeedbackTime) >
+         TASK_5_MOTOR_FEEDBACK_TIMEOUT_MS))
+    {
+        return 0U;
+    }
+
+    captured_position_rad = pitch_motor->Position;
+    if (BallBalanceMotorHorizontalReferenceSet(captured_position_rad) == 0U)
+    {
+        return 0U;
+    }
+
+    enable_start_ms = HAL_GetTick();
+    while ((uint32_t)(HAL_GetTick() - enable_start_ms) <
+           TASK_5_MOTOR_ENABLE_TIMEOUT_MS)
+    {
+        if (pitch_motor->measure.State == (uint8_t)MOTOR_ENABLE)
+        {
+            /*
+             * 电机已经使能时发送捕获角保持帧，避免等待视觉首帧期间机构偏离
+             * 人工设置的水平姿态；目标仍受DM_pos_limit保护。
+             */
+            DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
+                          captured_position_rad, 0.0f,
+                          task3_segmented_control.pitch_motor_kp,
+                          task3_segmented_control.pitch_motor_kd, 0.0f);
+            return 1U;
+        }
+
+        /*
+         * 反馈为失能时该接口发送0xFC使能帧；若电机报告错误状态则先清错，
+         * 下一周期继续尝试。超时后由调用者重新失能，避免无反馈持续驱动。
+         */
+        DM_MitControl(DM_PITCH_TX_ID, MOTOR_ENABLE,
+                      captured_position_rad, 0.0f,
+                      task3_segmented_control.pitch_motor_kp,
+                      task3_segmented_control.pitch_motor_kd, 0.0f);
+        HAL_Delay(TASK_5_MOTOR_ENABLE_RETRY_MS);
+    }
+
+    return 0U;
 }
 
 /**
@@ -392,10 +465,11 @@ void task_4(void)
 }
 /**
  * @brief 任务5：以启动后第一帧有效钢球坐标为固定目标，同时执行任务4底盘运动。
- * @note 调用前要求UART4视觉接收、TIM4球杆控制、CAN和电机已经初始化。函数先
- *       将球杆回中，并阻塞等待最多1 s的新视觉有效包；超时或坐标超出相机有效
- *       范围时保持底盘停止并退出。捕获成功后调用ChassisTrack3_Run()，因此会
- *       阻塞到任务4同款底盘运动结束，期间TIM4持续执行位置闭环。
+ * @note 调用前要求UART4视觉接收、TIM4、CAN和Pitch电机已经初始化。函数先暂停
+ *       TIM4且不发送回零帧，读取100 ms内的Pitch反馈角作为本任务软件水平基准，
+ *       再以3 ms周期进行最多100 ms的使能握手；随后阻塞等待最多1 s的新视觉包。
+ *       反馈、使能或视觉任一失败时会失能电机、保持底盘停止并退出。捕获成功后
+ *       调用ChassisTrack3_Run()，其间TIM4持续执行位置闭环。
  */
 void task_5(void)
 {
@@ -405,12 +479,25 @@ void task_5(void)
     float task_5_target_offset_pixel = 0.0f;
     uint8_t target_captured = 0U;
 
+    /*
+     * 必须先停TIM4且不发送固定零点命令，否则会在读取人工设置角度前改变机构姿态。
+     * 该写入与TIM4共享，ball_balance_control_enabled使用volatile声明。
+     */
+    BallBalanceControl_Pause();
     Task2SegmentedControl_Disable();
     Task2_RestoreOriginalParams();
     Task3SegmentedControl_Disable();
     task_2_stage = TASK_2_STAGE_IDLE;
-    // 等待首帧期间球杆保持水平，避免沿用上一个任务的目标继续驱动小球。
-    BallBalanceControl_Stop();
+    Task5_BallControlParamsApply();
+
+    if (Task5_MotorReferenceCaptureAndEnable() == 0U)
+    {
+        // CAN反馈或使能失败时保持安全失能，且不让临时基准遗留给下一次任务。
+        DMMotorDisable(DM_PITCH_TX_ID, MIT_MODE);
+        task3_segmented_control.motor_zero_angle_rad = 0.0f;
+        serial_screen_task = SERIAL_SCREEN_TASK_NONE;
+        return;
+    }
 
     last_packet_count = point_packet_rx_count;
     wait_start_tick_ms = HAL_GetTick();
@@ -441,12 +528,13 @@ void task_5(void)
 
     if (target_captured == 0U)
     {
-        // 未获得有效目标时禁止启动执行器，等待下一次串口屏任务5指令重新尝试。
+        // 未获得视觉目标时停止已使能的Pitch电机，等待下一次任务5重新捕获基准。
+        DMMotorDisable(DM_PITCH_TX_ID, MIT_MODE);
+        task3_segmented_control.motor_zero_angle_rad = 0.0f;
         serial_screen_task = SERIAL_SCREEN_TASK_NONE;
         return;
     }
 
-    Task5_BallControlParamsApply();
     task_5_target_offset_pixel =
         task_5_target_position - BALL_BALANCE_DEFAULT_TARGET_POSITION;
     /*
@@ -493,9 +581,41 @@ void task_5(void)
 }
 
 /**
+ * @brief 任务7：在主循环中持续失能Pitch电机，供人工调整任务5水平姿态。
+ * @retval 无。
+ * @note 串口屏发送0xAA 0x07 0x55后进入；调用前要求USART2中断、HAL时基和
+ *       CAN1已经初始化。函数会暂停TIM4球杆输出，然后每3 ms直接发送一帧
+ *       MIT失能指令并阻塞主循环；USART2和HAL时基中断仍可运行。收到任意新的
+ *       有效任务号时退出，且故意不清除新任务号，使下一轮主循环继续执行它。
+ */
+void task_7(void)
+{
+    /*
+     * Pause只关闭TIM4输出、不发送回零帧，避免失能前先把人工姿态拉回默认零点。
+     * 同时退出原任务分段状态，防止后续TIM4与失能帧交替发送。
+     */
+    BallBalanceControl_Pause();
+    Task2SegmentedControl_Disable();
+    Task2_RestoreOriginalParams();
+    Task3SegmentedControl_Disable();
+    task_2_stage = TASK_2_STAGE_IDLE;
+
+    while (serial_screen_task == SERIAL_SCREEN_TASK_7)
+    {
+        /*
+         * 必须直接调用DMMotorDisable：DM_MitControl在反馈已经失能时会转而发送
+         * 普通MIT控制帧，不能满足持续重发0xFD失能帧的要求。
+         */
+        DMMotorDisable(DM_PITCH_TX_ID, MIT_MODE);
+        HAL_Delay(TASK_7_DISABLE_PERIOD_MS);
+    }
+}
+
+/**
  * @brief 根据串口屏发送的任务号执行对应任务。
- * @note 本函数在主循环调用；任务1、3、4和5包含底盘运动阻塞过程，
- *       但运行期间TIM4仍可中断并执行球杆控制。
+ * @note 本函数在主循环调用；任务1、3、4和5包含底盘运动阻塞过程，运行期间
+ *       TIM4仍可中断执行球杆控制。任务7也会阻塞主循环，但可由USART2中断收到
+ *       的下一条有效任务指令退出。
  */
 void task_switch(void)
 {
@@ -518,6 +638,9 @@ void task_switch(void)
             break;
         case SERIAL_SCREEN_TASK_6:
             task_2_special();
+            break;
+        case SERIAL_SCREEN_TASK_7:
+            task_7();
             break;
         default:
             break;

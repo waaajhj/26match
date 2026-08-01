@@ -19,6 +19,7 @@ void task_2_update(void);
 void task_3(void);
 void task_4(void);
 void task_5(void);
+void task_7(void);
 void task_switch(void);
 
 // 任务2阶段由主循环更新，保留为全局量以便Keil Watch观察。

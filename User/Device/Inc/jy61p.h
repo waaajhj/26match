@@ -5,8 +5,8 @@
 
 /*
  * USART2 串口屏任务帧格式：0xAA + 任务号 + 0x55，共 3 字节。
- * 任务号有效范围为 1~6；任务 1 只记录状态，不置执行标志，
- * 任务 2~6 收到完整有效帧后置 serial_screen_task_ready。
+ * 任务号有效范围为 1~7；收到完整有效帧后更新 serial_screen_task，
+ * 任务实际执行和任务间切换均由主循环处理。
  */
 typedef enum
 {
@@ -16,7 +16,8 @@ typedef enum
     SERIAL_SCREEN_TASK_3 = 3U,
     SERIAL_SCREEN_TASK_4 = 4U,
     SERIAL_SCREEN_TASK_5 = 5U,
-    SERIAL_SCREEN_TASK_6 = 6U
+    SERIAL_SCREEN_TASK_6 = 6U,
+    SERIAL_SCREEN_TASK_7 = 7U
 } SerialScreenTask_e;
 
 void Hal_Uart_Init(void);
@@ -29,7 +30,7 @@ void JY61P_START(void);
 
 /*
  * 以下变量在 USART2 接收完成中断中更新，在主循环或任务函数中读取。
- * 业务代码处理完任务后，应将 serial_screen_task_ready 清零。
+ * serial_screen_task 为当前最新有效任务号；ready 保留用于兼容原有调试观察。
  */
 extern volatile SerialScreenTask_e serial_screen_task;
 extern volatile uint8_t serial_screen_task_ready;
